@@ -68,8 +68,8 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest
 	return outcome.settlement()
 }
 
-func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool, middlewares []tool.CallMiddleware) error {
-	binding, err := tool.Bind(executable, middlewares...)
+func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
+	binding, err := tool.Bind(executable)
 	if err != nil {
 		return err
 	}
@@ -176,9 +176,10 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 	return preparedToolCall{call: call, binding: binding, invocation: invocation}, nil, nil
 }
 
-// toolCapability reads a consumer-owned declaration directly from the Tool.
-// Declarations are read once at binding, so a panic there is a defect of the
-// Tool that must reject construction rather than surface during recovery.
+// toolCapability reads a consumer-owned declaration through any decorators of
+// the Tool. Declarations are read once at binding, so a panic there is a
+// defect of the Tool that must reject construction rather than surface during
+// recovery.
 func toolCapability[C, V any](executable tool.Tool, declaration string, read func(C) V) (value V, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -186,7 +187,7 @@ func toolCapability[C, V any](executable tool.Tool, declaration string, read fun
 			value, err = zero, &run.CallbackPanicError{Operation: declaration, Value: recovered}
 		}
 	}()
-	capability, found := executable.(C)
+	capability, found := tool.As[C](executable)
 	if !found {
 		return value, nil
 	}

@@ -39,7 +39,7 @@ func TestGuardSeparatesInternalErrorsFromCurrentInvocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				binding, err := tool.Bind(executable, guard.Call)
+				binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -77,7 +77,7 @@ func TestGuardDoesNotExecuteAfterPolicyCancelsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(executable, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 	if err != nil {
 		t.Fatal(err)
 	}

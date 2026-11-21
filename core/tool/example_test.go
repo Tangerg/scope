@@ -110,7 +110,7 @@ func ExampleNewGuard() {
 	if err != nil {
 		panic(err)
 	}
-	binding, err := tool.Bind(executable, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 	if err != nil {
 		panic(err)
 	}
@@ -126,4 +126,70 @@ func ExampleNewGuard() {
 	fmt.Println(failure.Kind())
 	// Output:
 	// rejected
+}
+
+// printCalls is a CallMiddleware that reports each call before forwarding it.
+func printCalls(next tool.Caller) tool.Caller {
+	return tool.CallerFunc(func(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+		fmt.Println("calling", invocation.Definition().Name)
+		return next.Call(ctx, invocation)
+	})
+}
+
+func ExampleWrap() {
+	type input struct {
+		Query string `json:"query"`
+	}
+	search, err := tool.NewFunc(tool.FuncConfig{Name: "search"}, func(_ context.Context, value input) (string, error) {
+		return "results for " + value.Query, nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	binding, err := tool.Bind(tool.Wrap(search, printCalls))
+	if err != nil {
+		panic(err)
+	}
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, tool.Admission{})
+	if err != nil {
+		panic(err)
+	}
+	result, err := binding.Call(context.Background(), invocation)
+	if err != nil {
+		panic(err)
+	}
+	text, _ := result.Output.Text()
+	fmt.Println(text)
+	// Output:
+	// calling search
+	// results for scope
+}
+
+// approvalRequired is a declaration a host defines for its own policy.
+type approvalRequired interface{ RequiresApproval() bool }
+
+// approved makes the declaration for a Tool the host does not own. Through
+// Unwrap, the declarations of that Tool stay reachable.
+type approved struct{ tool.Tool }
+
+func (a approved) Unwrap() tool.Tool { return a.Tool }
+
+func (approved) RequiresApproval() bool { return true }
+
+func ExampleAs() {
+	type input struct {
+		Path string `json:"path"`
+	}
+	remove, err := tool.NewFunc(tool.FuncConfig{Name: "remove", Effect: tool.EffectUnsafe}, func(_ context.Context, value input) (string, error) {
+		return "removed " + value.Path, nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	decorated := tool.Wrap(approved{Tool: remove}, printCalls)
+
+	declaration, declared := tool.As[approvalRequired](decorated)
+	_, validates := tool.As[tool.InputValidatingTool](decorated)
+	fmt.Println(declared && declaration.RequiresApproval(), validates)
+	// Output: true true
 }

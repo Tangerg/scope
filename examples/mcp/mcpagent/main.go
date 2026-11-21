@@ -180,7 +180,7 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: string(toolRevision), Tools: selected, Middlewares: []tool.CallMiddleware{guard.Call}})
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: string(toolRevision), Tools: []tool.Tool{tool.Wrap(selected[0], guard.Call)}})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, fmt.Errorf("create MCP tool set: %w", err)
 	}

@@ -3,6 +3,8 @@ package tool_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -31,7 +33,7 @@ func TestMiddlewareCannotReplaceInvocationOrRepeatExecution(t *testing.T) {
 			})
 		}
 		var err error
-		binding, err = tool.Bind(executable, middleware)
+		binding, err = tool.Bind(tool.Wrap(executable, middleware))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,10 +57,10 @@ func TestMiddlewareCannotReplaceInvocationOrRepeatExecution(t *testing.T) {
 func TestMiddlewareCannotRetainExecutionAuthorityAfterReturn(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	var retained tool.Caller
-	binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller {
+	binding, err := tool.Bind(tool.Wrap(executable, func(next tool.Caller) tool.Caller {
 		retained = next
 		return tool.CallerFunc(func(context.Context, tool.Invocation) (tool.Result, error) { return tool.Result{}, nil })
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,11 +85,11 @@ func TestMiddlewareCannotOriginateInputRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(newStubTool("search"), func(tool.Caller) tool.Caller {
+	binding, err := tool.Bind(tool.Wrap(newStubTool("search"), func(tool.Caller) tool.Caller {
 		return tool.CallerFunc(func(context.Context, tool.Invocation) (tool.Result, error) {
 			return tool.Result{InputRequest: &request}, nil
 		})
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +104,7 @@ func TestMiddlewareCannotOriginateInputRequest(t *testing.T) {
 
 func TestMiddlewarePreservesTheToolsContinuation(t *testing.T) {
 	for _, drop := range []bool{false, true} {
-		binding, err := tool.Bind(confirmingTool{}, func(next tool.Caller) tool.Caller {
+		binding, err := tool.Bind(tool.Wrap(confirmingTool{}, func(next tool.Caller) tool.Caller {
 			return tool.CallerFunc(func(ctx context.Context, admitted tool.Invocation) (tool.Result, error) {
 				result, err := next.Call(ctx, admitted)
 				if drop {
@@ -110,7 +112,7 @@ func TestMiddlewarePreservesTheToolsContinuation(t *testing.T) {
 				}
 				return result, err
 			})
-		})
+		}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +163,7 @@ func (b blockedTool) Call(context.Context, tool.Invocation) (tool.Result, error)
 func TestMiddlewareCannotReturnSuccessBeforeExecutionFinishes(t *testing.T) {
 	executable := blockedTool{started: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan struct{})
-	binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller {
+	binding, err := tool.Bind(tool.Wrap(executable, func(next tool.Caller) tool.Caller {
 		return tool.CallerFunc(func(ctx context.Context, admitted tool.Invocation) (tool.Result, error) {
 			go func() {
 				defer close(done)
@@ -170,7 +172,7 @@ func TestMiddlewareCannotReturnSuccessBeforeExecutionFinishes(t *testing.T) {
 			<-executable.started
 			return tool.Result{}, nil
 		})
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +191,10 @@ func TestMiddlewareCannotReturnSuccessBeforeExecutionFinishes(t *testing.T) {
 	}
 }
 
-func TestBindingRejectsAMiddlewareThatReturnsNoCaller(t *testing.T) {
+func TestWrapRejectsAMiddlewareThatReturnsNoCaller(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	var retained tool.Caller
-	binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller { retained = next; return nil })
+	binding, err := tool.Bind(tool.Wrap(executable, func(next tool.Caller) tool.Caller { retained = next; return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,13 +216,13 @@ func TestMiddlewareViolationCannotBecomeADefiniteRejection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller {
+	binding, err := tool.Bind(tool.Wrap(executable, func(next tool.Caller) tool.Caller {
 		return tool.CallerFunc(func(ctx context.Context, admitted tool.Invocation) (tool.Result, error) {
 			_, _ = next.Call(ctx, admitted)
 			_, _ = next.Call(ctx, admitted)
 			return tool.Result{}, failure
 		})
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,10 +242,10 @@ func TestMiddlewareViolationCannotBecomeADefiniteRejection(t *testing.T) {
 func TestPanickingMiddlewareFactoryCannotRetainExecutionAuthority(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	var retained tool.Caller
-	binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller {
+	binding, err := tool.Bind(tool.Wrap(executable, func(next tool.Caller) tool.Caller {
 		retained = next
 		panic("factory failed")
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,5 +263,95 @@ func TestPanickingMiddlewareFactoryCannotRetainExecutionAuthority(t *testing.T) 
 	}()
 	if _, err := retained.Call(t.Context(), admitted); !errors.Is(err, tool.ErrInvalidInvocation) || executable.calls.Load() != 0 {
 		t.Fatalf("panicking factory retained execution authority: %v", err)
+	}
+}
+
+func TestWrapComposesOutermostFirstAndSkipsNil(t *testing.T) {
+	var order []string
+	record := func(name string) tool.CallMiddleware {
+		return func(next tool.Caller) tool.Caller {
+			return tool.CallerFunc(func(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+				order = append(order, name)
+				return next.Call(ctx, invocation)
+			})
+		}
+	}
+	executable := &countingTool{name: "search"}
+	binding, err := tool.Bind(tool.Wrap(executable, nil, record("outer"), nil, record("inner")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, tool.Admission{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := binding.Call(t.Context(), admitted); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(order, ",") != "outer,inner" || executable.calls.Load() != 1 {
+		t.Fatalf("order=%v calls=%d", order, executable.calls.Load())
+	}
+}
+
+func TestWrapWithoutMiddlewareReturnsTheTool(t *testing.T) {
+	executable := &countingTool{name: "search"}
+	if wrapped := tool.Wrap(executable); wrapped != tool.Tool(executable) {
+		t.Fatalf("Wrap() = %T, want the Tool itself", wrapped)
+	}
+	if wrapped := tool.Wrap(executable, nil, nil); wrapped != tool.Tool(executable) {
+		t.Fatalf("Wrap(nil, nil) = %T, want the Tool itself", wrapped)
+	}
+	if wrapped := tool.Wrap(nil, func(next tool.Caller) tool.Caller { return next }); wrapped != nil {
+		t.Fatalf("Wrap hid a nil Tool behind %T", wrapped)
+	}
+}
+
+func TestWrapUnwrapsToTheDecoratedTool(t *testing.T) {
+	executable := &countingTool{name: "search"}
+	wrapped := tool.Wrap(executable, func(next tool.Caller) tool.Caller { return next })
+	unwrapper, ok := wrapped.(interface{ Unwrap() tool.Tool })
+	if !ok || unwrapper.Unwrap() != tool.Tool(executable) {
+		t.Fatalf("Wrap result does not unwrap to the decorated Tool: %T", wrapped)
+	}
+	if definition := wrapped.Definition(); definition.Name != "search" {
+		t.Fatalf("Definition = %+v", definition)
+	}
+}
+
+// permissiveTool overrides the validator of the Tool it decorates.
+type permissiveTool struct{ tool.Tool }
+
+func (p permissiveTool) Unwrap() tool.Tool { return p.Tool }
+
+func (permissiveTool) InputValidator() func([]byte) error { return nil }
+
+func TestAsSearchesTheUnwrapChainFromTheOutside(t *testing.T) {
+	inner := validatingTool{declare: func() func([]byte) error { return nil }}
+	forward := func(next tool.Caller) tool.Caller { return next }
+	for _, test := range []struct {
+		name string
+		tool tool.Tool
+		want any // the declaring Tool, compared by type
+	}{
+		{"undecorated", inner, inner},
+		{"Wrap", tool.Wrap(inner, forward), inner},
+		{"host decorators", decoratedTool{Tool: decoratedTool{Tool: inner}}, inner},
+		{"overriding decorator", tool.Wrap(permissiveTool{Tool: inner}, forward), permissiveTool{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			declared, ok := tool.As[tool.InputValidatingTool](test.tool)
+			if !ok || fmt.Sprintf("%T", declared) != fmt.Sprintf("%T", test.want) {
+				t.Fatalf("As = %T, %v; want %T", declared, ok, test.want)
+			}
+		})
+	}
+}
+
+func TestAsReportsAbsentDeclarations(t *testing.T) {
+	for _, candidate := range []tool.Tool{nil, &countingTool{name: "search"}, decoratedTool{Tool: &countingTool{name: "search"}}, decoratedTool{}} {
+		declared, ok := tool.As[tool.InputValidatingTool](candidate)
+		if ok || declared != nil {
+			t.Fatalf("As(%T) = %v, %v; want nil, false", candidate, declared, ok)
+		}
 	}
 }

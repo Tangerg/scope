@@ -12,12 +12,12 @@ import (
 func TestAdmissionOwnsIdempotencyAcrossContinuation(t *testing.T) {
 	const key tool.IdempotencyKey = "host-allocated-call"
 	var observed []tool.IdempotencyKey
-	binding, err := tool.Bind(confirmingTool{}, func(next tool.Caller) tool.Caller {
+	binding, err := tool.Bind(tool.Wrap(confirmingTool{}, func(next tool.Caller) tool.Caller {
 		return tool.CallerFunc(func(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
 			observed = append(observed, invocation.IdempotencyKey())
 			return next.Call(ctx, invocation)
 		})
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}

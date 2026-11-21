@@ -12,8 +12,9 @@ import (
 )
 
 type ToolSetConfig struct {
-	Revision      string
-	Middlewares   []tool.CallMiddleware
+	Revision string
+	// Tools and DeferredTools are bound as given; decorate them with tool.Wrap
+	// first. Declarations are read through tool.As, so they survive decoration.
 	Tools         []tool.Tool
 	DeferredTools []tool.Tool
 	// RequiredCapabilities are the grants every tool call Effect requires.
@@ -48,12 +49,12 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	}
 	dispatcher := newToolDispatcher()
 	for index, executable := range config.Tools {
-		if err := dispatcher.bindTool(executable, false, config.Middlewares); err != nil {
+		if err := dispatcher.bindTool(executable, false); err != nil {
 			return ToolSet{}, fmt.Errorf("%w: Tools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}
 	for index, executable := range config.DeferredTools {
-		if err := dispatcher.bindTool(executable, true, config.Middlewares); err != nil {
+		if err := dispatcher.bindTool(executable, true); err != nil {
 			return ToolSet{}, fmt.Errorf("%w: DeferredTools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}

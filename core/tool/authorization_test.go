@@ -19,7 +19,7 @@ func TestGuardLeavesContractCompilationToBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.Bind(executable, guard.Call); !errors.Is(err, tool.ErrInvalidTool) {
+	if _, err := tool.Bind(tool.Wrap(executable, guard.Call)); !errors.Is(err, tool.ErrInvalidTool) {
 		t.Fatalf("invalid schema admitted: %v", err)
 	}
 }
@@ -36,7 +36,7 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(executable, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestGuardDenialSkipsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(executable, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(executable, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(executable, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -102,7 +102,7 @@ func TestBindingSettlesInvalidResultsAtTheSameExecutionBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller {
+			binding, err := tool.Bind(tool.Wrap(executable, func(next tool.Caller) tool.Caller {
 				return tool.CallerFunc(func(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
 					result, callErr := next.Call(ctx, invocation)
 					result.Output.Details = []byte(test.details)
@@ -111,7 +111,7 @@ func TestBindingSettlesInvalidResultsAtTheSameExecutionBoundary(t *testing.T) {
 					}
 					return result, callErr
 				})
-			})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}

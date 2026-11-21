@@ -365,7 +365,7 @@ func TestFuncAdmitsCustomDecoderConstraintsBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(function, guard.Call)
+	binding, err := tool.Bind(tool.Wrap(function, guard.Call))
 	if err != nil {
 		t.Fatal(err)
 	}

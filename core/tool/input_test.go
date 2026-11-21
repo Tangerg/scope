@@ -101,3 +101,29 @@ func (markedTool) Definition() tool.Definition {
 func (markedTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{}, nil
 }
+
+// A decorator that reports its inner Tool through Unwrap must not downgrade
+// input admission to the schema alone.
+func TestBindReadsTheInputValidatorThroughADecorator(t *testing.T) {
+	rejection, err := tool.NewInputRejection(tool.InputRejectionConfig{Message: "query is too short"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := validatingTool{declare: func() func([]byte) error {
+		return func([]byte) error { return rejection }
+	}}
+	binding, err := tool.Bind(decoratedTool{Tool: inner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, tool.Admission{})
+	if public, found := tool.ClassifyInputRejection(err); !found || public.Message() != "query is too short" {
+		t.Fatalf("decorated Tool lost its input validator: %v", err)
+	}
+}
+
+// decoratedTool is a host-written decorator: it adds no behavior and reports
+// the Tool it decorates.
+type decoratedTool struct{ tool.Tool }
+
+func (d decoratedTool) Unwrap() tool.Tool { return d.Tool }

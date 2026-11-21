@@ -43,7 +43,7 @@ func TestAuthorizationOutcomeSurvivesMCPBoundary(t *testing.T) {
 				}),
 			})
 			require.NoError(t, err)
-			binding, err := tool.Bind(executable, guard.Call)
+			binding, err := tool.Bind(tool.Wrap(executable, guard.Call))
 			require.NoError(t, err)
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "authorization"}, nil)
 			require.NoError(t, scopemcp.Register(server, binding))

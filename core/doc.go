@@ -57,7 +57,8 @@
 //
 // The chatclient and embeddingclient packages add the ordinary-path
 // conveniences — request admission, prompt templates, and structured output —
-// without changing the SPI; chat.Wrap is the one way to compose middleware.
+// without changing the SPI. chat.Wrap and tool.Wrap are the ways to compose
+// model and tool middleware.
 // Option defaults stay with the provider that owns them. The safeguard package
 // screens input and output as fail-closed chat middleware.
 // The httpclient package binds a borrowed HTTP client to its configured API

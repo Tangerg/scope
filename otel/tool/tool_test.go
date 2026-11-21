@@ -64,7 +64,7 @@ func newRig(t *testing.T) (toolotel.Middleware, *telemetryRig) {
 func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	middleware, rig := newRig(t)
 	inner := &testTool{result: "sensitive-result"}
-	binding, err := coretool.Bind(inner, middleware.Call)
+	binding, err := coretool.Bind(coretool.Wrap(inner, middleware.Call))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.T) {
 	middleware, rig := newRig(t)
 	want := fmt.Errorf("tool stopped: %w", context.Canceled)
-	binding, err := coretool.Bind(&testTool{err: want}, middleware.Call)
+	binding, err := coretool.Bind(coretool.Wrap(&testTool{err: want}, middleware.Call))
 	if err != nil {
 		t.Fatal(err)
 	}

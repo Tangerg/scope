@@ -117,6 +117,7 @@ func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 		{Revision: "duplicate", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{executable}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "direct"}}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "concurrent"}}},
+		{Revision: "decorated panic", Tools: []tool.Tool{decoratedTool{Tool: capabilityPanicTool{mode: "direct"}}}},
 		{Revision: "negative concurrency", Tools: []tool.Tool{executable}, MaxConcurrentCalls: -1},
 	} {
 		if set, err := NewToolSet(config); !errors.Is(err, ErrInvalidToolSet) || set.Configured() {
@@ -125,6 +126,43 @@ func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 	}
 	if (ToolSet{}).Configured() {
 		t.Fatal("zero tool set reports executable authority")
+	}
+}
+
+// decoratedTool is a host-written decorator that makes no declaration itself.
+type decoratedTool struct{ tool.Tool }
+
+func (d decoratedTool) Unwrap() tool.Tool { return d.Tool }
+
+// exclusiveTool assigns exclusive scheduling to a Tool the host does not own.
+type exclusiveTool struct{ tool.Tool }
+
+func (e exclusiveTool) Unwrap() tool.Tool { return e.Tool }
+
+func (exclusiveTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) { return nil }
+
+func TestToolSetReadsDeclarationsThroughDecorators(t *testing.T) {
+	inner := scriptTool{name: "echo", direct: true, classify: func(tool.Invocation) (string, bool) { return "", true }}
+	forward := func(next tool.Caller) tool.Caller { return next }
+	for _, test := range []struct {
+		name       string
+		executable tool.Tool
+		concurrent bool
+	}{
+		{"tool.Wrap", tool.Wrap(inner, forward), true},
+		{"host decorator", decoratedTool{Tool: inner}, true},
+		{"overriding decorator", tool.Wrap(exclusiveTool{Tool: inner}, forward), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			set, err := NewToolSet(ToolSetConfig{Revision: "decorated", Tools: []tool.Tool{test.executable}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := set.manifest().entries["echo"]
+			if !entry.direct || (entry.concurrent != nil) != test.concurrent || set.dispatcher.advertisers["echo"] == nil {
+				t.Fatalf("declarations lost: direct=%v concurrent=%v advertises=%v", entry.direct, entry.concurrent != nil, set.dispatcher.advertisers["echo"] != nil)
+			}
+		})
 	}
 }
 

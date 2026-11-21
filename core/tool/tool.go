@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/samber/lo"
 
@@ -19,11 +18,36 @@ var (
 
 // Tool executes invocations admitted by its exact frozen Contract. Errors carry
 // no retry, pause, or abort policy; the driving runtime owns those decisions.
+//
+// A Tool makes optional declarations, such as InputValidatingTool, by
+// implementing further methods. A Tool that decorates another reports it
+// through an Unwrap() Tool method, so declarations the decorator does not make
+// itself remain discoverable through As. Unwrap chains must be finite.
 type Tool interface {
 	Caller
 	// Definition returns a detached, valid schema snapshot. Callers may expose or
 	// mutate the returned value without changing subsequent calls or execution.
 	Definition() Definition
+}
+
+// As returns the first Tool in the Unwrap chain of t, starting with t itself,
+// that implements T. Searching from the outside lets a decorator override a
+// declaration by implementing it, as an embedding type overrides a promoted
+// method. Unwrap and the declarations are Tool code: callers that read them
+// own containing their panics.
+func As[T any](t Tool) (T, bool) {
+	for t != nil {
+		if declared, ok := t.(T); ok {
+			return declared, true
+		}
+		wrapper, ok := t.(interface{ Unwrap() Tool })
+		if !ok {
+			break
+		}
+		t = wrapper.Unwrap()
+	}
+	var zero T
+	return zero, false
 }
 
 // Compiled schemas own the canonical JSON projected by Definition. Keeping a
@@ -69,13 +93,14 @@ type Contract struct {
 // Binding associates one immutable Contract with the Tool that executes it.
 // Calls may run concurrently when the underlying Tool supports concurrent use.
 type Binding struct {
-	contract    Contract
-	executable  Caller
-	middlewares []CallMiddleware
+	contract   Contract
+	executable Caller
 }
 
-// Bind freezes and validates executable. Definition is read exactly once.
-func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
+// Bind freezes and validates executable. Definition is read exactly once, and
+// InputValidatingTool is read through As. Decorate a Tool with Wrap before
+// binding it.
+func Bind(executable Tool) (Binding, error) {
 	if lo.IsNil(executable) {
 		return Binding{}, fmt.Errorf("%w: tool is nil", ErrInvalidTool)
 	}
@@ -84,21 +109,12 @@ func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
 	}
-	for index, middleware := range middlewares {
-		if middleware == nil {
-			return Binding{}, fmt.Errorf("%w: middleware[%d] is nil", ErrInvalidTool, index)
-		}
-	}
 	validator, err := validatorOf(executable)
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input validation: %w", ErrInvalidTool, err)
 	}
 	state.validate = validator
-	return Binding{
-		contract:    Contract{state: state},
-		executable:  executable,
-		middlewares: slices.Clone(middlewares),
-	}, nil
+	return Binding{contract: Contract{state: state}, executable: executable}, nil
 }
 
 // Contract returns the exact frozen contract used to prepare this Binding's
@@ -229,7 +245,7 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 	if !b.bound() || invocation.contract != b.contract.state {
 		return Result{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
-	result, err := b.callFrom(ctx, invocation, 0)
+	result, err := b.executable.Call(ctx, invocation)
 	if err == nil {
 		err = b.contract.ValidateResult(result)
 	}
@@ -249,25 +265,6 @@ func (i Invocation) Continuation() (Continuation, bool) {
 		return Continuation{}, false
 	}
 	return *i.continuation, true
-}
-
-func (b Binding) callFrom(ctx context.Context, invocation Invocation, index int) (Result, error) {
-	if index == len(b.middlewares) {
-		return b.executable.Call(ctx, invocation)
-	}
-	forward := &callContinuation{invocation: invocation, next: CallerFunc(func(ctx context.Context, invocation Invocation) (Result, error) {
-		return b.callFrom(ctx, invocation, index+1)
-	})}
-	defer forward.close()
-	next := b.middlewares[index](forward)
-	if lo.IsNil(next) {
-		return Result{}, fmt.Errorf("%w: middleware[%d] returned nil", ErrInvalidTool, index)
-	}
-	result, err := next.Call(ctx, invocation)
-	if validationErr := forward.validate(result); validationErr != nil {
-		return Result{}, validationErr
-	}
-	return result, err
 }
 
 func (i Invocation) Definition() Definition { return (Contract{state: i.contract}).Definition() }
