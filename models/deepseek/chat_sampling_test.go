@@ -1,6 +1,7 @@
 package deepseek_test
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/deepseek"
 )
 
@@ -63,5 +65,22 @@ func TestTopPUsesResolvedModelAndThinkingMode(t *testing.T) {
 				t.Fatalf("response=%v error=%v provider calls=%d", response, err, calls.Load())
 			}
 		})
+	}
+}
+
+func TestRequestOptionsRejectForcedToolChoiceWhileThinking(t *testing.T) {
+	tool := toolcontract.Definition{Name: "lookup", Description: "Look up a value.", InputSchema: json.RawMessage(`{"type":"object"}`)}
+	request := &chat.Request{
+		Messages:   []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))},
+		Tools:      []toolcontract.Definition{tool},
+		ToolChoice: &chat.ToolChoice{Mode: chat.ToolChoiceRequired},
+		Options:    chat.Options{Model: deepseek.ModelFlash, ReasoningEffort: "high"},
+	}
+	if err := (deepseek.RequestOptions{}).ValidateFor(request, false); err == nil || !strings.Contains(err.Error(), "tool_choice") {
+		t.Fatalf("ValidateFor error = %v, want a tool_choice rejection", err)
+	}
+	request.Options.ReasoningEffort = "none"
+	if err := (deepseek.RequestOptions{}).ValidateFor(request, false); err != nil {
+		t.Fatalf("ValidateFor without thinking = %v", err)
 	}
 }

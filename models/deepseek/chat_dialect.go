@@ -9,7 +9,6 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/metadata"
-	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -92,11 +91,8 @@ func prepareRequest(request *corechat.Request, target *openai.CompatibleRequest)
 	if err != nil {
 		return fmt.Errorf("extension %q: %w", RequestExtensionKey, err)
 	}
-	if err := options.ValidateFor(request.Options, request.Tools, target.Stream()); err != nil {
+	if err := options.ValidateFor(request, target.Stream()); err != nil {
 		return err
-	}
-	if choice := request.ToolChoice; request.Options.ReasoningEffort != reasoningEffortNone && choice != nil && (choice.Mode == corechat.ToolChoiceRequired || choice.Mode == corechat.ToolChoiceNamed) {
-		return errors.New("options.tool_choice required and named modes are not supported while DeepSeek thinking is enabled")
 	}
 	if options.LogProbs != nil {
 		if err := target.SetExtraField(logProbsField, *options.LogProbs); err != nil {
@@ -123,7 +119,10 @@ func prepareRequest(request *corechat.Request, target *openai.CompatibleRequest)
 	return nil
 }
 
-func (r RequestOptions) ValidateFor(generation corechat.Options, tools []toolcontract.Definition, stream bool) error {
+// ValidateFor admits these options for request, whose tools and tool choice
+// DeepSeek constrains too.
+func (r RequestOptions) ValidateFor(request *corechat.Request, stream bool) error {
+	generation := request.Options
 	thinkingEnabled := generation.ReasoningEffort != reasoningEffortNone
 	switch generation.ReasoningEffort {
 	case "", reasoningEffortNone, reasoningEffortMinimal, reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh, reasoningEffortMax:
@@ -147,8 +146,11 @@ func (r RequestOptions) ValidateFor(generation corechat.Options, tools []toolcon
 	if len(generation.Stop) > maximumStopSequences {
 		return fmt.Errorf("options.stop must contain at most %d sequences for DeepSeek", maximumStopSequences)
 	}
-	if len(tools) > maximumTools {
+	if len(request.Tools) > maximumTools {
 		return fmt.Errorf("tools must contain at most %d functions for DeepSeek", maximumTools)
+	}
+	if choice := request.ToolChoice; thinkingEnabled && choice != nil && (choice.Mode == corechat.ToolChoiceRequired || choice.Mode == corechat.ToolChoiceNamed) {
+		return errors.New("options.tool_choice required and named modes are not supported while DeepSeek thinking is enabled")
 	}
 
 	if r.TopLogProbs != nil {

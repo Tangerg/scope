@@ -31,7 +31,7 @@ func (c ChatCompletionsConfig) Validate() error {
 	if err != nil {
 		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
 	}
-	if err := options.ValidateFor(c.DefaultOptions, nil, true); err != nil {
+	if err := options.ValidateFor(&corechat.Request{Options: c.DefaultOptions}, true); err != nil {
 		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
 	}
 	return nil
