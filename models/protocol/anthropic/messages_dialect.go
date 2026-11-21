@@ -28,14 +28,14 @@ type Dialect struct {
 }
 
 func protocolRequestExtensionKey(provider string) string {
-	if provider == ProviderID {
+	if provider == Provider {
 		return RequestExtensionKey
 	}
 	return provider + CompatibleRequestExtensionSuffix
 }
 
 func protocolStreamEventExtensionKey(provider string) string {
-	if provider == ProviderID {
+	if provider == Provider {
 		return StreamEventExtensionKey
 	}
 	return provider + CompatibleStreamExtensionSuffix

@@ -27,7 +27,7 @@ func NewThinkingPart(text string, signature []byte) (corechat.Part, error) {
 		return corechat.Part{}, errors.New("anthropic: thinking signature is required")
 	}
 	part := corechat.NewReasoningPart(text, signature)
-	if err := setProtocolReasoningState(&part, ProviderID, ReasoningBlockThinking); err != nil {
+	if err := setProtocolReasoningState(&part, Provider, ReasoningBlockThinking); err != nil {
 		return corechat.Part{}, err
 	}
 	return part, nil
@@ -40,7 +40,7 @@ func NewRedactedThinkingPart(data []byte) (corechat.Part, error) {
 		return corechat.Part{}, errors.New("anthropic: redacted thinking data is required")
 	}
 	part := corechat.NewReasoningPart("", data)
-	if err := setProtocolReasoningState(&part, ProviderID, ReasoningBlockRedacted); err != nil {
+	if err := setProtocolReasoningState(&part, Provider, ReasoningBlockRedacted); err != nil {
 		return corechat.Part{}, err
 	}
 	return part, nil
@@ -49,7 +49,7 @@ func NewRedactedThinkingPart(data []byte) (corechat.Part, error) {
 // ReasoningBlockKindOf reports whether part contains Anthropic-issued
 // reasoning replay state and, when it does, which official block variant it is.
 func ReasoningBlockKindOf(part corechat.Part) (ReasoningBlockKind, bool, error) {
-	return reasoningBlockKindFor(part, ProviderID)
+	return reasoningBlockKindFor(part, Provider)
 }
 
 func reasoningBlockKindFor(part corechat.Part, provider string) (ReasoningBlockKind, bool, error) {

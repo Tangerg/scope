@@ -49,10 +49,10 @@ func mustLoad() map[string]catalogEntry {
 	return providers
 }
 
-// validProviderID admits the lowercase spelling adapters use for Provider, so
+// validProvider admits the lowercase spelling adapters use for Provider, so
 // one identity can never be cataloged under two spellings.
-func validProviderID(id string) bool {
-	return id != "" && !strings.ContainsFunc(id, func(r rune) bool { return (r < 'a' || r > 'z') && (r < '0' || r > '9') })
+func validProvider(name string) bool {
+	return name != "" && !strings.ContainsFunc(name, func(r rune) bool { return (r < 'a' || r > 'z') && (r < '0' || r > '9') })
 }
 
 func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
@@ -74,7 +74,7 @@ func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
 		if config.Provider != providerID {
 			return nil, fmt.Errorf("catalog: provider %q differs from file identity %q", config.Provider, providerID)
 		}
-		if !validProviderID(config.Provider) {
+		if !validProvider(config.Provider) {
 			return nil, fmt.Errorf("catalog: provider %q is not a lowercase adapter identity", config.Provider)
 		}
 		models := make(map[string]Model, len(config.Models))

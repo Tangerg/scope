@@ -10,7 +10,7 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-const Provider = anthropicprotocol.ProviderID
+const Provider = anthropicprotocol.Provider
 
 const (
 	BaseURLOpenAI = "https://api.anthropic.com/v1"

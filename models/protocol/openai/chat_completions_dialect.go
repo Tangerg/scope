@@ -282,14 +282,14 @@ func (t TokenLimitField) Valid() bool {
 func (t TokenLimitField) String() string { return string(t) }
 
 func protocolRequestExtensionKey(provider string) string {
-	if provider == ProviderID {
+	if provider == Provider {
 		return RequestExtensionKey
 	}
 	return provider + CompatibleRequestExtensionSuffix
 }
 
 func protocolStreamChunkExtensionKey(provider string) string {
-	if provider == ProviderID {
+	if provider == Provider {
 		return StreamChunkExtensionKey
 	}
 	return provider + CompatibleStreamExtensionSuffix

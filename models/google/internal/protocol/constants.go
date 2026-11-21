@@ -1,6 +1,6 @@
 package protocol
 
-const GoogleProviderID = "google"
+const GoogleProvider = "google"
 
 const DefaultBaseURL = "https://generativelanguage.googleapis.com"
 
@@ -18,12 +18,12 @@ const (
 )
 
 const (
-	SpeechRequestExtensionKey         = GoogleProviderID + SpeechRequestExtensionSuffix
-	SpeechResponseExtensionKey        = GoogleProviderID + SpeechResponseExtensionSuffix
-	TranscriptionRequestExtensionKey  = GoogleProviderID + TranscriptionRequestExtensionSuffix
-	TranscriptionResponseExtensionKey = GoogleProviderID + TranscriptionResponseExtensionSuffix
-	EmbeddingRequestExtensionKey      = GoogleProviderID + EmbeddingRequestExtensionSuffix
-	EmbeddingResponseExtensionKey     = GoogleProviderID + EmbeddingResponseExtensionSuffix
+	SpeechRequestExtensionKey         = GoogleProvider + SpeechRequestExtensionSuffix
+	SpeechResponseExtensionKey        = GoogleProvider + SpeechResponseExtensionSuffix
+	TranscriptionRequestExtensionKey  = GoogleProvider + TranscriptionRequestExtensionSuffix
+	TranscriptionResponseExtensionKey = GoogleProvider + TranscriptionResponseExtensionSuffix
+	EmbeddingRequestExtensionKey      = GoogleProvider + EmbeddingRequestExtensionSuffix
+	EmbeddingResponseExtensionKey     = GoogleProvider + EmbeddingResponseExtensionSuffix
 )
 
 const (

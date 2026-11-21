@@ -16,7 +16,7 @@ import (
 
 const (
 	// StreamEventExtensionKey preserves each official Anthropic stream event.
-	StreamEventExtensionKey = ProviderID + "/stream_event"
+	StreamEventExtensionKey = Provider + "/stream_event"
 
 	protocolBlockText    = "text"
 	protocolBlockToolUse = "tool_use"

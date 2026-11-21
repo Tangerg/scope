@@ -9,7 +9,7 @@ func TestResponsesReasoningCodecOmitsMixedIssuers(t *testing.T) {
 	state := responsesReasoningState{Item: map[string]json.RawMessage{
 		"id": json.RawMessage(`"reasoning"`), "type": json.RawMessage(`"reasoning"`), "summary": json.RawMessage(`[]`),
 	}}
-	codec := responsesReasoningCodec{provider: ProviderID}
+	codec := responsesReasoningCodec{provider: Provider}
 	own, err := codec.encodeFrame(state)
 	if err != nil {
 		t.Fatal(err)

@@ -16,7 +16,7 @@ import (
 const (
 	// ResponseExtensionKey preserves the complete official GenerateContent
 	// response (or the current official stream chunk).
-	ResponseExtensionKey = GoogleProviderID + ResponseExtensionSuffix
+	ResponseExtensionKey = GoogleProvider + ResponseExtensionSuffix
 
 	generatedToolIDNamespaceSuffix = "/generated/"
 )

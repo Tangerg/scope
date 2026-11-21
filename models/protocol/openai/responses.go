@@ -20,8 +20,8 @@ const (
 	// the dialect preserves stream events.
 	ResponsesStreamEventExtensionSuffix = "/responses_stream_event"
 	// Native fields without a Core equivalent retain the binding's namespace.
-	ResponsesRequestExtensionKey   = ProviderID + ResponsesRequestExtensionSuffix
-	ResponsesResponseExtensionKey  = ProviderID + ResponsesResponseExtensionSuffix
+	ResponsesRequestExtensionKey   = Provider + ResponsesRequestExtensionSuffix
+	ResponsesResponseExtensionKey  = Provider + ResponsesResponseExtensionSuffix
 	responsesItemTypeMessage       = "message"
 	responsesItemTypeReasoning     = "reasoning"
 	responsesItemTypeFunctionCall  = "function_call"

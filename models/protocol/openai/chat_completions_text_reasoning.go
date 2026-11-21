@@ -17,8 +17,8 @@ import (
 const (
 	reasoningContentField    = "reasoning_content"
 	reasoningField           = "reasoning"
-	textReasoningProviderKey = ProviderID + "/reasoning_provider"
-	textReasoningFieldKey    = ProviderID + "/reasoning_field"
+	textReasoningProviderKey = Provider + "/reasoning_provider"
+	textReasoningFieldKey    = Provider + "/reasoning_field"
 )
 
 type TextReasoningField string

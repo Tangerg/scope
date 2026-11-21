@@ -9,7 +9,7 @@ import (
 )
 
 func TestReasoningClassificationAndReplayShareIssuerAdmission(t *testing.T) {
-	for _, provider := range []string{ProviderID, "minimax"} {
+	for _, provider := range []string{Provider, "minimax"} {
 		for _, block := range []anthropicsdk.ContentBlockUnion{
 			{Type: string(ReasoningBlockThinking), Thinking: "private thought", Signature: "signature"},
 			{Type: string(ReasoningBlockRedacted), Data: "redacted"},
@@ -22,11 +22,11 @@ func TestReasoningClassificationAndReplayShareIssuerAdmission(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, included, err := mapProtocolReasoningPart(0, parts[0], ProviderID)
+			_, included, err := mapProtocolReasoningPart(0, parts[0], Provider)
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := provider == ProviderID
+			want := provider == Provider
 			if found != want || included != want {
 				t.Fatalf("issuer %q: classification=%t, replay=%t", provider, found, included)
 			}

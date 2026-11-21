@@ -46,7 +46,7 @@ const (
 const (
 	// RequestExtensionKey stores provider-owned top-level Messages API fields in
 	// a Core request for fields without a provider-neutral equivalent.
-	RequestExtensionKey          = ProviderID + "/request"
+	RequestExtensionKey          = Provider + "/request"
 	protocolReasoningKindKey     = "anthropic/reasoning_kind"
 	protocolReasoningProviderKey = "anthropic/reasoning_provider"
 	protocolStopSequenceKey      = "anthropic/stop_sequence"

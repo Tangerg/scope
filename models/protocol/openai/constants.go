@@ -5,7 +5,7 @@ package openai
 // to this protocol keys a modality's native request fields by its own ID and
 // the modality's suffix.
 const (
-	ProviderID = "openai"
+	Provider = "openai"
 
 	SpeechRequestExtensionSuffix        = "/speech_request"
 	TranscriptionRequestExtensionSuffix = "/transcription_request"
@@ -17,10 +17,10 @@ const (
 	// provider revised it before generating.
 	ImageRevisedPromptMetadataSuffix = "/revised_prompt"
 
-	SpeechRequestExtensionKey        = ProviderID + SpeechRequestExtensionSuffix
-	TranscriptionRequestExtensionKey = ProviderID + TranscriptionRequestExtensionSuffix
-	TranslationRequestExtensionKey   = ProviderID + TranslationRequestExtensionSuffix
-	EmbeddingRequestExtensionKey     = ProviderID + EmbeddingRequestExtensionSuffix
-	ImageRequestExtensionKey         = ProviderID + ImageRequestExtensionSuffix
-	ModerationRequestExtensionKey    = ProviderID + ModerationRequestExtensionSuffix
+	SpeechRequestExtensionKey        = Provider + SpeechRequestExtensionSuffix
+	TranscriptionRequestExtensionKey = Provider + TranscriptionRequestExtensionSuffix
+	TranslationRequestExtensionKey   = Provider + TranslationRequestExtensionSuffix
+	EmbeddingRequestExtensionKey     = Provider + EmbeddingRequestExtensionSuffix
+	ImageRequestExtensionKey         = Provider + ImageRequestExtensionSuffix
+	ModerationRequestExtensionKey    = Provider + ModerationRequestExtensionSuffix
 )

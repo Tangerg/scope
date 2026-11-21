@@ -211,7 +211,7 @@ func collectAdapterPackages(t *testing.T, directory string, into *[]adapterPacka
 
 // importedProviderConstant resolves a Provider that re-exports the constant of
 // the protocol package owning that identity, such as
-// anthropicprotocol.ProviderID, by reading the imported package's source.
+// anthropicprotocol.Provider, by reading the imported package's source.
 func importedProviderConstant(t *testing.T, file *ast.File) (string, bool) {
 	t.Helper()
 	for _, declaration := range file.Decls {

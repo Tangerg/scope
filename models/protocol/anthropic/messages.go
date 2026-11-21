@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	ProviderID               = "anthropic"
+	Provider                 = "anthropic"
 	protocolDefaultMaxTokens = 4096
 )
 
@@ -53,7 +53,7 @@ type Messages struct {
 }
 
 func NewMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
-	if dialect.Provider != ProviderID && config.BaseURL == "" {
+	if dialect.Provider != Provider && config.BaseURL == "" {
 		return nil, errors.New("anthropic protocol: a compatible binding requires an explicit endpoint")
 	}
 	if err := config.Validate(); err != nil {

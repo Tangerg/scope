@@ -44,7 +44,7 @@ type apiConfig struct {
 // A compatible provider must never send its credential to the official
 // endpoint or an unrelated SDK environment default.
 func requireBindingEndpoint(provider, endpoint string) error {
-	if provider != ProviderID && endpoint == "" {
+	if provider != Provider && endpoint == "" {
 		return errors.New("openai protocol: a compatible binding requires an explicit endpoint")
 	}
 	return nil

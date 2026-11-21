@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	Provider       = protocol.GoogleProviderID
+	Provider       = protocol.GoogleProvider
 	DefaultBaseURL = protocol.DefaultBaseURL
 	BaseURLOpenAI  = "https://generativelanguage.googleapis.com/v1beta/openai"
 

@@ -13,7 +13,7 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-const Provider = openaiprotocol.ProviderID
+const Provider = openaiprotocol.Provider
 
 // ChatModelConfig configures both chat endpoints. Construction does no network
 // I/O, and per-call overrides remain in chat.Request. MaxRetries has the

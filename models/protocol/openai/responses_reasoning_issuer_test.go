@@ -15,7 +15,7 @@ import (
 )
 
 func TestResponsesReasoningReplaysOnlyToItsIssuer(t *testing.T) {
-	for _, issuer := range []string{openai.ProviderID, "perplexity"} {
+	for _, issuer := range []string{openai.Provider, "perplexity"} {
 		t.Run(issuer, func(t *testing.T) {
 			item := `{"id":"reasoning-origin","type":"reasoning","summary":[{"type":"summary_text","text":"original"}],"encrypted_content":"issuer-ciphertext","status":"completed","vendor_integer":9007199254740993}`
 			origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -45,7 +45,7 @@ func TestResponsesReasoningReplaysOnlyToItsIssuer(t *testing.T) {
 			if err := jsonv2.Unmarshal(encoded, &history); err != nil {
 				t.Fatal(err)
 			}
-			for _, provider := range []string{openai.ProviderID, "perplexity"} {
+			for _, provider := range []string{openai.Provider, "perplexity"} {
 				t.Run(provider, func(t *testing.T) {
 					captured := make(chan json.RawMessage, 1)
 					destination := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -76,7 +76,7 @@ func TestResponsesReasoningReplaysOnlyToItsIssuer(t *testing.T) {
 						t.Fatal(err)
 					}
 					assertResponsesIssuerInput(t, <-captured, provider == issuer)
-					if provider == openai.ProviderID {
+					if provider == openai.Provider {
 						if count, err := target.CountInputTokens(t.Context(), request); err != nil || count != 11 {
 							t.Fatalf("CountInputTokens = %d, %v", count, err)
 						}

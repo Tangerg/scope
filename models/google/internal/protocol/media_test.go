@@ -21,10 +21,10 @@ func TestUnknownMIMEAdheresToNativeMediaContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, provider := range []string{GoogleProviderID, "vertexai"} {
+	for _, provider := range []string{GoogleProvider, "vertexai"} {
 		for _, value := range []*media.Media{inline, remote} {
 			t.Run(provider+"/"+string(value.Source.Kind), func(t *testing.T) {
-				wantError := value.Source.Kind == media.SourceBytes || provider != GoogleProviderID
+				wantError := value.Source.Kind == media.SourceBytes || provider != GoogleProvider
 				for _, message := range []corechat.Message{
 					corechat.NewUserMessage(corechat.NewMediaPart(value)),
 					corechat.NewAssistantMessage(corechat.NewMediaPart(value)),

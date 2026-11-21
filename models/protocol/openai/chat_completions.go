@@ -18,10 +18,10 @@ import (
 const (
 	// RequestExtensionKey identifies provider-owned Chat Completions fields
 	// encoded as [RequestFields].
-	RequestExtensionKey = ProviderID + "/request"
+	RequestExtensionKey = Provider + "/request"
 	// StreamChunkExtensionKey preserves each complete official Chat
 	// Completions stream chunk.
-	StreamChunkExtensionKey = ProviderID + "/stream_chunk"
+	StreamChunkExtensionKey = Provider + "/stream_chunk"
 )
 
 var (
