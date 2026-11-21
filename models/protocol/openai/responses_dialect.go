@@ -29,9 +29,6 @@ type ResponsesDialect struct {
 
 func (r ResponsesDialect) Validate() error { return metadata.ValidateExtensionNamespace(r.Provider) }
 
-// validateOptions admits the Core options the Responses API accepts. A binding
-// applies it to its defaults at construction and to every resolved request,
-// so defaults no request could send fail when they are configured.
 func (r ResponsesDialect) validateOptions(options corechat.Options) error {
 	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil || len(options.Stop) != 0 {
 		return errors.New("openai responses: frequency_penalty, presence_penalty, top_k, and stop are not supported")

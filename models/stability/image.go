@@ -88,10 +88,6 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	return endpoint, apiReq, nil
 }
 
-// mapImageOptions selects the endpoint and projects the options alone onto
-// the native request. A binding applies it to its defaults at construction
-// and to every resolved request, so defaults no request could send fail when
-// they are configured.
 func mapImageOptions(effectiveOptions image.Options) (string, *generateRequest, error) {
 	switch {
 	case effectiveOptions.Height != nil && effectiveOptions.Width != nil:

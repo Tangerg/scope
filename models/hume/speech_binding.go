@@ -60,9 +60,6 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 	return body, nil
 }
 
-// mapSpeechOptions projects the options alone onto the native request. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapSpeechOptions(options speech.Options) (*ttsRequest, error) {
 	nativeFields, _, err := options.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
 	if err != nil {

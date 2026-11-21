@@ -130,9 +130,6 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 	return apiReq, nil
 }
 
-// mapEmbeddingOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapEmbeddingOptions(effectiveOptions embedding.Options) (*cohere.V2EmbedRequest, error) {
 	options, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {

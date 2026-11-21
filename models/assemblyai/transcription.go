@@ -130,9 +130,6 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	return t.buildResponse(final)
 }
 
-// mapTranscriptOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapTranscriptOptions(effectiveOptions transcription.Options) (*transcriptRequest, error) {
 	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
 	if err != nil {

@@ -54,7 +54,7 @@ func (e EmbeddingModelConfig) Validate() error {
 		return err
 	}
 	if e.DefaultOptions.Model == "" {
-		return errors.New("mistral: default model is required")
+		return errors.New("mistral: DefaultOptions.Model is required")
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err

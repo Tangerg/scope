@@ -182,10 +182,6 @@ func (i ImageInputSchema) Validate() error {
 	return nil
 }
 
-// admitOptions admits the options alone against this schema and returns the
-// native prediction they carry.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func (i ImageInputSchema) admitOptions(options image.Options) (*predictionRequest, error) {
 	if err := i.validateOptions(options); err != nil {
 		return nil, err

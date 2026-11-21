@@ -46,9 +46,6 @@ var reasoningEfforts = []corechat.ReasoningEffort{
 	corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortMax),
 }
 
-// validateOptions admits the Core options this dialect's endpoint accepts. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func (d Dialect) validateOptions(options corechat.Options) error {
 	if options.FrequencyPenalty != nil {
 		return errors.New("anthropic: options.frequency_penalty is not supported")

@@ -86,9 +86,6 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 	return effectiveOptions.Model, contents, config, nil
 }
 
-// mapTranscriptionOptions projects the options alone onto the native config.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapTranscriptionOptions(provider string, options transcription.Options) (*genai.GenerateContentConfig, error) {
 	if options.Language != "" {
 		return nil, errors.New("google: transcription: language is not supported")

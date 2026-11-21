@@ -93,9 +93,6 @@ func (s *SpeechModel) buildAPITTSRequest(req *speech.Request) (*openai.AudioSpee
 	return params, nil
 }
 
-// mapSpeechOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapSpeechOptions(provider string, effectiveOptions speech.Options) (*openai.AudioSpeechNewParams, error) {
 	fields, err := decodeRequestFields(effectiveOptions.Extensions, provider+SpeechRequestExtensionSuffix, speechFieldModel, speechFieldInput, speechFieldVoice, speechFieldSpeed, speechFieldResponseFormat, speechFieldStreamFormat)
 	if err != nil {

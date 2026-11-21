@@ -93,9 +93,6 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	return params, nil
 }
 
-// mapImageOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapImageOptions(provider string, effectiveOptions image.Options) (*openai.ImageGenerateParams, error) {
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions("openai: image", map[string]bool{
 		imageFieldNegativePrompt: effectiveOptions.NegativePrompt != "",

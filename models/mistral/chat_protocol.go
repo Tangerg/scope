@@ -115,9 +115,6 @@ func (c ChatConfig) Validate() error {
 	return validateOptions(c.DefaultOptions)
 }
 
-// validateOptions admits the Core options Mistral accepts. A binding applies
-// it to its defaults at construction and to every resolved request, so
-// defaults no request could send fail when they are configured.
 func validateOptions(options corechat.Options) error {
 	if options.Temperature != nil && (*options.Temperature < 0 || *options.Temperature > maximumTemperature) {
 		return fmt.Errorf("mistral: options.temperature must be between 0 and %g, got %v", maximumTemperature, *options.Temperature)

@@ -85,10 +85,6 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	return newJobResponse(apiReq.Type, body, hdr.Get(headerContentType), accept)
 }
 
-// newJobRequest merges the caller's native job extension with the Core model
-// and options, rejecting extension fields Core owns. A binding applies it to
-// its defaults at construction and to every resolved request, so defaults no
-// request could send fail when they are configured.
 func newJobRequest(options image.Options) (*jobRequest, error) {
 	switch options.OutputFormat {
 	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:

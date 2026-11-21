@@ -88,9 +88,6 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 	return params, nil
 }
 
-// mapTranslationOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapTranslationOptions(provider string, effectiveOptions transcription.Options) (*openai.AudioTranslationNewParams, error) {
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions("openai: translation", map[string]bool{
 		audioFieldLanguage: effectiveOptions.Language != "",

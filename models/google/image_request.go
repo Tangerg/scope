@@ -126,10 +126,6 @@ func newImageInteractionRequest(req *image.Request, defaults image.Options) (*im
 	return apiReq, nil
 }
 
-// admitImageOptions admits the options alone and returns their native
-// controls. A binding applies it to its defaults at construction and to every
-// resolved request, so defaults no request could send fail when they are
-// configured.
 func admitImageOptions(options image.Options) (*ImageGenerationOptions, error) {
 	if err := validateImageOptions(options); err != nil {
 		return nil, err

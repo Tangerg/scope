@@ -159,10 +159,6 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content,
 	return effectiveOptions.Model, contents, &config, nil
 }
 
-// admitImageOptions admits the options alone and returns their native
-// controls. A binding applies it to its defaults at construction and to every
-// resolved request, so defaults no request could send fail when they are
-// configured.
 func admitImageOptions(options image.Options) (*ImageGenerationOptions, error) {
 	switch {
 	case options.Height != nil:

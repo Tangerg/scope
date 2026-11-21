@@ -59,9 +59,6 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 	return effectiveOptions.Model, contents, config, nil
 }
 
-// mapSpeechOptions projects the options alone onto the native config. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapSpeechOptions(provider string, effectiveOptions speech.Options) (*genai.GenerateContentConfig, error) {
 	switch {
 	case effectiveOptions.OutputFormat != "":

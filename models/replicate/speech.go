@@ -92,10 +92,6 @@ func (s SpeechInputSchema) Validate() error {
 	return nil
 }
 
-// admitOptions admits the options alone against this schema and returns the
-// native prediction they carry.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func (s SpeechInputSchema) admitOptions(options speech.Options) (*predictionRequest, error) {
 	if err := s.validateOptions(options); err != nil {
 		return nil, err

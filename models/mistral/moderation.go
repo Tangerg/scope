@@ -26,7 +26,7 @@ func (m ModerationModelConfig) Validate() error {
 		return err
 	}
 	if m.DefaultOptions.Model == "" {
-		return errors.New("mistral: default model is required")
+		return errors.New("mistral: DefaultOptions.Model is required")
 	}
 	if err := m.DefaultOptions.Validate(); err != nil {
 		return err

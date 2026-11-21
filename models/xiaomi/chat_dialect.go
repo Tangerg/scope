@@ -98,8 +98,7 @@ func decodeRequestOptions(source *corechat.Request, nativeKey string) (ChatReque
 }
 
 // decodeExtensions admits the typed extension and the protocol's native one,
-// which may not set thinking. A binding applies it to its defaults at
-// construction and to every resolved request.
+// which may not set thinking: the typed extension owns it.
 func decodeExtensions(extensions metadata.Extensions, nativeKey string) (ChatRequestOptions, error) {
 	fields, _, err := extensions.Decode[map[string]any](nativeKey)
 	if err != nil {

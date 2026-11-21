@@ -151,9 +151,6 @@ func (i *ImageModel) generationParams(request *image.Request) (lumaagents.Genera
 	return params, nil
 }
 
-// mapGenerationOptions projects the options alone onto the native generation.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapGenerationOptions(effectiveOptions image.Options) (lumaagents.GenerationNewParams, error) {
 	if err := rejectUnsupportedOptions(effectiveOptions); err != nil {
 		return lumaagents.GenerationNewParams{}, err

@@ -79,9 +79,6 @@ func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*open
 	return params, nil
 }
 
-// mapEmbeddingOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapEmbeddingOptions(provider string, options embedding.Options) (*openai.EmbeddingNewParams, error) {
 	fields, err := decodeRequestFields(options.Extensions, provider+EmbeddingRequestExtensionSuffix, embeddingFieldModel, embeddingFieldInput, embeddingFieldDimensions)
 	if err != nil {

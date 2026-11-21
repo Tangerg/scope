@@ -79,9 +79,6 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	return options.Model, contents, config, nil
 }
 
-// mapProtocolOptions projects the options alone onto the native config. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapProtocolOptions(provider string, options corechat.Options) (*genai.GenerateContentConfig, error) {
 	config, err := decodeProtocolConfig(provider, options.Extensions)
 	if err != nil {

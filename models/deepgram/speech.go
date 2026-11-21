@@ -85,9 +85,6 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	return req.Text, params, nil
 }
 
-// mapSpeechOptions projects the options alone onto the native request. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapSpeechOptions(effectiveOptions speech.Options) (*speakParams, error) {
 	if effectiveOptions.Voice != "" {
 		return nil, errors.New("deepgram: speech: unsupported option: voice")

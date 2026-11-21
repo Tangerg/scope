@@ -85,9 +85,6 @@ func (c ChatConfig) Validate() error {
 	return validateOptions(c.DefaultOptions)
 }
 
-// validateOptions admits the Core options Converse accepts. A binding applies
-// it to its defaults at construction and to every resolved request, so
-// defaults no request could send fail when they are configured.
 func validateOptions(options corechat.Options) error {
 	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil {
 		return errors.New("bedrock: frequency_penalty, presence_penalty, and top_k are not supported by Converse inference configuration")

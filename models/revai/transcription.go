@@ -127,9 +127,6 @@ func (t *TranscriptionModel) buildJobOptions(req *transcription.Request) (*jobOp
 	return mapJobOptions(options)
 }
 
-// mapJobOptions projects the options alone onto the native job options.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapJobOptions(options transcription.Options) (*jobOptions, error) {
 	nativeFields, _, err := options.Extensions.Decode[map[string]json.RawMessage](RequestExtensionKey)
 	if err != nil {

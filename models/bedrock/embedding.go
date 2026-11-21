@@ -98,10 +98,6 @@ func (e EmbeddingModelConfig) Validate() error {
 	return err
 }
 
-// admitEmbeddingOptions selects the model family and admits the options
-// alone against it. A binding applies it to its defaults at construction and
-// to every resolved request, so defaults no request could send fail when they
-// are configured.
 func admitEmbeddingOptions(options embedding.Options) (embeddingFamily, *EmbeddingRequestOptions, error) {
 	native, _, err := options.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {

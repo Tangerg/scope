@@ -123,9 +123,6 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	return effectiveOptions.Model, apiReq, nil
 }
 
-// mapImageOptions projects the options alone onto the native request. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapImageOptions(effectiveOptions image.Options) (*generateRequest, error) {
 	if effectiveOptions.NegativePrompt != "" {
 		return nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")

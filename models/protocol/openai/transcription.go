@@ -76,9 +76,6 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 	return params, nil
 }
 
-// mapTranscriptionOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapTranscriptionOptions(provider string, options transcription.Options) (*openai.AudioTranscriptionNewParams, error) {
 	params, err := decodeAudioRequest[openai.AudioTranscriptionNewParams](options.Extensions, provider+TranscriptionRequestExtensionSuffix, audioFieldModel, audioFieldFile, audioFieldLanguage)
 	if err != nil {

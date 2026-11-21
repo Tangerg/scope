@@ -70,9 +70,6 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 	return apiReq, nil
 }
 
-// mapProtocolOptions projects the options alone onto the native request. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapProtocolOptions(options corechat.Options) (*nativeChatRequest, error) {
 	if options.ReasoningEffort != "" {
 		return nil, errors.New("ollama: options.reasoning_effort is unsupported by native chat; set think through the ollama/request extension")

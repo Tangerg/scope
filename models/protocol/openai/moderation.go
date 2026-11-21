@@ -80,9 +80,6 @@ func (m *ModerationModel) buildAPIModerationRequest(req *moderation.Request) (*o
 	return params, nil
 }
 
-// mapModerationOptions projects the options alone onto the native request.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapModerationOptions(provider string, options moderation.Options) (*openai.ModerationNewParams, error) {
 	fields, err := decodeRequestFields(options.Extensions, provider+ModerationRequestExtensionSuffix, moderationFieldModel, moderationFieldInput)
 	if err != nil {

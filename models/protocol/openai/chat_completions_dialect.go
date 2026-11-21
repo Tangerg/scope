@@ -226,9 +226,6 @@ type chatDialect struct {
 	response func() responseDialect
 }
 
-// validateOptions admits the Core options this dialect's provider documents.
-// A binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func (c chatDialect) validateOptions(options corechat.Options) error {
 	for _, option := range []struct {
 		name ChatOption

@@ -73,9 +73,6 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 	return apiReq, nil
 }
 
-// mapEmbeddingOptions projects the options alone onto the native request. A
-// binding applies it to its defaults at construction and to every resolved
-// request, so defaults no request could send fail when they are configured.
 func mapEmbeddingOptions(options embedding.Options) (*nativeEmbedRequest, error) {
 	raw, found, err := options.Extensions.Decode[json.RawMessage](EmbeddingRequestExtensionKey)
 	if err != nil {
