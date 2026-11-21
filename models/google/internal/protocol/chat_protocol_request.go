@@ -66,53 +66,17 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	if options.Model == "" {
 		return "", nil, nil, errors.New("google: model is required in defaults or request options")
 	}
-	if options.MaxOutputTokens != nil {
-		if *options.MaxOutputTokens > math.MaxInt32 {
-			return "", nil, nil, errors.New("google: options.max_output_tokens exceeds int32")
-		}
-		config.MaxOutputTokens = int32(*options.MaxOutputTokens)
-	}
-	if options.Temperature != nil {
-		value := float32(*options.Temperature)
-		config.Temperature = &value
-	}
-	if options.TopK != nil {
-		value := float32(*options.TopK)
-		config.TopK = &value
-	}
-	if options.TopP != nil {
-		value := float32(*options.TopP)
-		config.TopP = &value
-	}
-	if options.FrequencyPenalty != nil {
-		value := float32(*options.FrequencyPenalty)
-		config.FrequencyPenalty = &value
-	}
-	if options.PresencePenalty != nil {
-		value := float32(*options.PresencePenalty)
-		config.PresencePenalty = &value
-	}
-	if len(options.Stop) > 0 {
-		config.StopSequences = slices.Clone(options.Stop)
-	}
-	thinkingLevel, err := mapProtocolThinkingLevel(options.ReasoningEffort)
-	if err != nil {
+	if err = mapProtocolSampling(options, config); err != nil {
 		return "", nil, nil, err
 	}
-	if thinkingLevel != genai.ThinkingLevelUnspecified {
-		if config.ThinkingConfig != nil && config.ThinkingConfig.ThinkingBudget != nil {
-			return "", nil, nil, errors.New("google: options.reasoning_effort and thinkingConfig.thinkingBudget are mutually exclusive")
-		}
-		if config.ThinkingConfig == nil {
-			config.ThinkingConfig = &genai.ThinkingConfig{}
-		}
-		config.ThinkingConfig.ThinkingLevel = thinkingLevel
+	if err = mapProtocolThinking(options.ReasoningEffort, config); err != nil {
+		return "", nil, nil, err
 	}
-	if mapProtocolOutputFormatErr := mapProtocolOutputFormat(options.OutputFormat, config); mapProtocolOutputFormatErr != nil {
-		return "", nil, nil, mapProtocolOutputFormatErr
+	if err = mapProtocolOutputFormat(options.OutputFormat, config); err != nil {
+		return "", nil, nil, err
 	}
-	if toolChoiceErr := mapProtocolToolChoice(req.ToolChoice, config); toolChoiceErr != nil {
-		return "", nil, nil, toolChoiceErr
+	if err = mapProtocolToolChoice(req.ToolChoice, config); err != nil {
+		return "", nil, nil, err
 	}
 
 	system, contents, err := mapProtocolMessages(provider, req.Messages)
@@ -126,6 +90,50 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	}
 	config.Tools = append(config.Tools, tools...)
 	return options.Model, contents, config, nil
+}
+
+// mapProtocolSampling projects the portable sampling options onto the native
+// config, whose numeric fields are float32 and int32.
+func mapProtocolSampling(options corechat.Options, config *genai.GenerateContentConfig) error {
+	if options.MaxOutputTokens != nil {
+		if *options.MaxOutputTokens > math.MaxInt32 {
+			return errors.New("google: options.max_output_tokens exceeds int32")
+		}
+		config.MaxOutputTokens = int32(*options.MaxOutputTokens)
+	}
+	config.Temperature = float32Of(options.Temperature)
+	config.TopK = float32Of(options.TopK)
+	config.TopP = float32Of(options.TopP)
+	config.FrequencyPenalty = float32Of(options.FrequencyPenalty)
+	config.PresencePenalty = float32Of(options.PresencePenalty)
+	if len(options.Stop) > 0 {
+		config.StopSequences = slices.Clone(options.Stop)
+	}
+	return nil
+}
+
+func float32Of[T float64 | int64](value *T) *float32 {
+	if value == nil {
+		return nil
+	}
+	return new(float32(*value))
+}
+
+// mapProtocolThinking sets the native thinking level; a native thinking
+// budget names the same choice another way, so both cannot be set.
+func mapProtocolThinking(effort corechat.ReasoningEffort, config *genai.GenerateContentConfig) error {
+	thinkingLevel, err := mapProtocolThinkingLevel(effort)
+	if err != nil || thinkingLevel == genai.ThinkingLevelUnspecified {
+		return err
+	}
+	if config.ThinkingConfig != nil && config.ThinkingConfig.ThinkingBudget != nil {
+		return errors.New("google: options.reasoning_effort and thinkingConfig.thinkingBudget are mutually exclusive")
+	}
+	if config.ThinkingConfig == nil {
+		config.ThinkingConfig = &genai.ThinkingConfig{}
+	}
+	config.ThinkingConfig.ThinkingLevel = thinkingLevel
+	return nil
 }
 
 func mapProtocolOutputFormat(format *corechat.OutputFormat, config *genai.GenerateContentConfig) error {

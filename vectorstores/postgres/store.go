@@ -208,7 +208,6 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	response = &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}
 	if err = vectorstore.RequireWidth(request.Values, width); err != nil {
 		return nil, err
 	}
@@ -216,39 +215,11 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $1 AS distance FROM %s ORDER BY distance,id LIMIT $2", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable)
-	rows, err := transaction.Query(ctx, statement, queryVector, request.Options.ResultLimit())
+	results, err := s.rank(ctx, transaction, request, queryVector, width)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id []byte
-		var text string
-		var facts []byte
-		var vector pgvec.Vector
-		var distance float64
-		if err = rows.Scan(&id, &text, &facts, &vector, &distance); err != nil {
-			return nil, err
-		}
-		doc, decodeErr := decodeDocument(id, text, facts)
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		if err = s.validateNativeVector(vector, width); err != nil {
-			return nil, err
-		}
-		score, scoreErr := s.distanceMetric.Score(distance)
-		if scoreErr != nil {
-			return nil, scoreErr
-		}
-		if score >= request.Options.MinScore {
-			response.Results = append(response.Results, &vectorstore.SearchResult{Document: doc, Score: score})
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
+	response = &vectorstore.SearchResponse{Results: results}
 	if err = request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
@@ -256,6 +227,43 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		return nil, err
 	}
 	return response, nil
+}
+
+// rank reads the nearest rows in distance order and keeps those at or above
+// MinScore.
+func (s *Store) rank(ctx context.Context, transaction pgx.Tx, request *vectorstore.Query, queryVector pgvec.Vector, width int) ([]*vectorstore.SearchResult, error) {
+	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $1 AS distance FROM %s ORDER BY distance,id LIMIT $2", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable)
+	rows, err := transaction.Query(ctx, statement, queryVector, request.Options.ResultLimit())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	results := []*vectorstore.SearchResult{}
+	for rows.Next() {
+		var id []byte
+		var text string
+		var facts []byte
+		var vector pgvec.Vector
+		var distance float64
+		if err := rows.Scan(&id, &text, &facts, &vector, &distance); err != nil {
+			return nil, err
+		}
+		doc, err := decodeDocument(id, text, facts)
+		if err != nil {
+			return nil, err
+		}
+		if err = s.validateNativeVector(vector, width); err != nil {
+			return nil, err
+		}
+		score, err := s.distanceMetric.Score(distance)
+		if err != nil {
+			return nil, err
+		}
+		if score >= request.Options.MinScore {
+			results = append(results, &vectorstore.SearchResult{Document: doc, Score: score})
+		}
+	}
+	return results, rows.Err()
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {

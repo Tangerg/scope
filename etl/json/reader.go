@@ -50,45 +50,24 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	data, p, err := r.source.Read(ctx, r.sourceBudget, r.sourceName)
+	data, provenance, err := r.source.Read(ctx, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("json reader: read source: %w", err)
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
+	if err = ctx.Err(); err != nil {
+		return nil, err
 	}
-
 	dec := jsontext.NewDecoder(bytes.NewReader(data))
-	array := dec.PeekKind() == jsontext.KindBeginArray
-	if array {
-		if _, err = dec.ReadToken(); err != nil {
-			return nil, err
-		}
-	}
 	var docs []*document.Document
-	for !array || dec.PeekKind() != jsontext.KindEndArray {
-		if err = ctx.Err(); err != nil {
-			return nil, err
-		}
-		raw, readErr := dec.ReadValue()
-		if readErr != nil {
-			return nil, fmt.Errorf("json reader: decode value: %w", readErr)
-		}
-		doc, buildErr := document.NewDocument(string(raw), nil)
-		if buildErr != nil {
-			return nil, buildErr
-		}
-		end := dec.InputOffset()
-		doc.Provenance = origin.Span(p, end-int64(len(raw)), end)
-		docs = append(docs, doc)
-		if !array {
-			break
-		}
+	if dec.PeekKind() == jsontext.KindBeginArray {
+		docs, err = readElements(ctx, dec, provenance)
+	} else {
+		var doc *document.Document
+		doc, err = readValue(dec, provenance)
+		docs = []*document.Document{doc}
 	}
-	if array {
-		if _, err = dec.ReadToken(); err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
 	}
 	if _, err = dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return nil, errors.New("json reader: invalid trailing input")
@@ -96,17 +75,50 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if array {
-		for i, d := range docs {
-			if err = ctx.Err(); err != nil {
-				return nil, err
-			}
-			span := d.Provenance
-			d.Provenance = p.Split("", i, len(docs))
-			if span != nil {
-				d.Provenance.Bytes = span.Bytes
-			}
+	return docs, nil
+}
+
+// readElements reads a top-level array as one document per element. Each keeps
+// its byte span and records its position among the source's elements.
+func readElements(ctx context.Context, dec *jsontext.Decoder, provenance *document.Provenance) ([]*document.Document, error) {
+	if _, err := dec.ReadToken(); err != nil {
+		return nil, err
+	}
+	var docs []*document.Document
+	for dec.PeekKind() != jsontext.KindEndArray {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		doc, err := readValue(dec, provenance)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, doc)
+	}
+	if _, err := dec.ReadToken(); err != nil {
+		return nil, err
+	}
+	for index, doc := range docs {
+		span := doc.Provenance
+		doc.Provenance = provenance.Split("", index, len(docs))
+		if span != nil {
+			doc.Provenance.Bytes = span.Bytes
 		}
 	}
 	return docs, nil
+}
+
+// readValue reads the next JSON value as a document spanning its source bytes.
+func readValue(dec *jsontext.Decoder, provenance *document.Provenance) (*document.Document, error) {
+	raw, err := dec.ReadValue()
+	if err != nil {
+		return nil, fmt.Errorf("json reader: decode value: %w", err)
+	}
+	doc, err := document.NewDocument(string(raw), nil)
+	if err != nil {
+		return nil, err
+	}
+	end := dec.InputOffset()
+	doc.Provenance = origin.Span(provenance, end-int64(len(raw)), end)
+	return doc, nil
 }
