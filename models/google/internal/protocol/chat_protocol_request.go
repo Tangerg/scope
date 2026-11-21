@@ -204,7 +204,7 @@ func mapProtocolThinkingLevel(effort corechat.ReasoningEffort) (genai.ThinkingLe
 	}
 	native := genai.ThinkingLevel(strings.ToUpper(string(effort)))
 	switch native {
-	case genai.ThinkingLevelMinimal, genai.ThinkingLevelLow, genai.ThinkingLevelMedium, genai.ThinkingLevelHigh:
+	case genai.ThinkingLevelMinimal, genai.ThinkingLevelLow, genai.ThinkingLevelMedium, genai.ThinkingLevelHigh, genai.ThinkingLevelXhigh:
 		return native, nil
 	default:
 		return genai.ThinkingLevelUnspecified, fmt.Errorf("google: options.reasoning_effort has unsupported value %q", effort)

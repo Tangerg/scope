@@ -42,6 +42,7 @@ func TestChatAdmitsOneThinkingControlAfterDefaults(t *testing.T) {
 			{name: "default level and budget", defaultEffort: "high", defaultNative: `{"thinkingConfig":{"thinkingBudget":1024}}`, conflict: true},
 			{name: "zero budget is explicit", requestEffort: "low", requestNative: `{"thinkingConfig":{"thinkingBudget":0}}`, conflict: true},
 			{name: "dynamic budget is explicit", requestEffort: "low", requestNative: `{"thinkingConfig":{"thinkingBudget":-1}}`, conflict: true},
+			{name: "extra-high level", requestEffort: "xhigh", want: &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelXhigh}},
 			{name: "null budget is absent", requestEffort: "low", requestNative: `{"thinkingConfig":{"thinkingBudget":null}}`, want: &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelLow}},
 		} {
 			t.Run(binding.provider+"/"+test.name, func(t *testing.T) {

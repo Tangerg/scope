@@ -107,8 +107,8 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	params.Prompt = req.Prompt
 
 	if effectiveOptions.OutputFormat != "" {
-		format := openai.ImagesResponseOutputFormat(effectiveOptions.OutputFormat.Subtype())
-		if _, err := imageOutputMIMEType(format); err != nil {
+		format, err := imageOutputFormat(effectiveOptions.OutputFormat)
+		if err != nil {
 			return nil, err
 		}
 		params.OutputFormat = openai.ImageGenerateParamsOutputFormat(format)
@@ -161,13 +161,33 @@ func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, requestedFo
 	return image.NewResponse(outputs, responseMetadata)
 }
 
+// imageSVGSubtype is the registered subtype of the format OpenAI names "svg";
+// every other output format name is already its image subtype.
+const imageSVGSubtype = "svg+xml"
+
 func imageOutputMIMEType(format openai.ImagesResponseOutputFormat) (string, error) {
 	switch format {
-	case openai.ImagesResponseOutputFormatPNG, openai.ImagesResponseOutputFormatJPEG, openai.ImagesResponseOutputFormatWebP:
+	case openai.ImagesResponseOutputFormatPNG, openai.ImagesResponseOutputFormatJPEG,
+		openai.ImagesResponseOutputFormatWebP, openai.ImagesResponseOutputFormatGIF:
 		return string(media.TopLevelImage.Type(string(format))), nil
+	case openai.ImagesResponseOutputFormatSvg:
+		return string(media.TopLevelImage.Type(imageSVGSubtype)), nil
 	default:
 		return "", fmt.Errorf("openai: image: unsupported output format %q", format)
 	}
+}
+
+// imageOutputFormat inverts imageOutputMIMEType, so a request names only a
+// format whose responses decode back to the requested media type.
+func imageOutputFormat(mediaType media.Type) (openai.ImagesResponseOutputFormat, error) {
+	format := openai.ImagesResponseOutputFormat(mediaType.Subtype())
+	if mediaType.Subtype() == imageSVGSubtype {
+		format = openai.ImagesResponseOutputFormatSvg
+	}
+	if mimeType, err := imageOutputMIMEType(format); err != nil || mimeType != string(mediaType) {
+		return "", fmt.Errorf("openai: image: unsupported output format %q", mediaType)
+	}
+	return format, nil
 }
 
 func openAIImageMedia(mimeType, uri, encoded string) (*media.Media, error) {
