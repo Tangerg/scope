@@ -31,9 +31,9 @@ const (
 )
 
 var (
-	ErrInvalidObserverConfig = errors.New("agent otel: invalid observer configuration")
-	ErrObservationClosed     = errors.New("agent otel: observer is closed")
-	ErrObservationSequence   = errors.New("agent otel: noncontiguous log observation")
+	ErrInvalidConfig       = errors.New("otel/agent: invalid config")
+	ErrObservationClosed   = errors.New("otel/agent: observer is closed")
+	ErrObservationSequence = errors.New("otel/agent: noncontiguous log observation")
 )
 
 // Nil providers use the corresponding OpenTelemetry globals.
@@ -70,7 +70,7 @@ func NewObserver(config ObserverConfig) (*Observer, error) {
 // not fabricated. The caller persists the cursor and owns reader scheduling.
 func (o *Observer) Consume(ctx context.Context, source LogSource, after run.LSN) (run.LSN, error) {
 	if ctx == nil || o == nil || o.tracer == nil || lo.IsNil(source) || !source.ID().Valid() || source.ID().Depth() != 0 {
-		return after, ErrInvalidObserverConfig
+		return after, ErrInvalidConfig
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	projection := newLogProjection(o, source.ID())
@@ -110,7 +110,7 @@ func (o *Observer) Consume(ctx context.Context, source LogSource, after run.LSN)
 
 func (o *Observer) Close(ctx context.Context) error {
 	if ctx == nil || o == nil || o.tracer == nil {
-		return ErrInvalidObserverConfig
+		return ErrInvalidConfig
 	}
 	o.mu.Lock()
 	o.closed = true
@@ -130,39 +130,14 @@ func (o *Observer) Close(ctx context.Context) error {
 	return nil
 }
 
-func (o *Observer) enabled() bool {
-	if o == nil || o.tracer == nil {
-		return false
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return !o.closed
-}
-
-func (o *Observer) WrapStore(next run.Store) (run.Store, error) {
-	if !o.enabled() || lo.IsNil(next) {
-		return nil, ErrInvalidObserverConfig
-	}
-	return &observedStore{observer: o, next: next}, nil
-}
-
-func (o *Observer) WrapDispatcher(next run.Dispatcher) (run.Dispatcher, error) {
-	if !o.enabled() || lo.IsNil(next) {
-		return nil, ErrInvalidObserverConfig
-	}
-	return &observedDispatcher{observer: o, next: next}, nil
-}
-
 type observerInstruments struct {
-	processStarts      metric.Int64Counter
-	processExits       metric.Int64Counter
-	processDuration    metric.Float64Histogram
-	steps              metric.Int64Counter
-	effects            metric.Int64Counter
-	messages           metric.Int64Counter
-	effectDuration     metric.Float64Histogram
-	durabilityDuration metric.Float64Histogram
-	durabilityBytes    metric.Int64Histogram
+	processStarts   metric.Int64Counter
+	processExits    metric.Int64Counter
+	processDuration metric.Float64Histogram
+	steps           metric.Int64Counter
+	effects         metric.Int64Counter
+	messages        metric.Int64Counter
+	effectDuration  metric.Float64Histogram
 }
 
 func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
@@ -189,14 +164,8 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 	counter(processAcceptedMessagesMetricName, &instruments.messages)
 	histogram(invokeAgentDurationMetricName, &instruments.processDuration)
 	histogram(effectDurationMetricName, &instruments.effectDuration)
-	histogram(durabilityDurationMetricName, &instruments.durabilityDuration)
-	var err error
-	instruments.durabilityBytes, err = meter.Int64Histogram(durabilityBatchBytesMetricName, metric.WithUnit(byteUnit))
-	if err != nil {
-		failures = append(failures, err)
-	}
 	if len(failures) > 0 {
-		return observerInstruments{}, fmt.Errorf("%w: %w", ErrInvalidObserverConfig, errors.Join(failures...))
+		return observerInstruments{}, fmt.Errorf("%w: %w", ErrInvalidConfig, errors.Join(failures...))
 	}
 	return instruments, nil
 }

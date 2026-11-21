@@ -19,9 +19,11 @@
 //   - history: history store and conversation listing.
 //   - vectorstore: the vector-store capabilities.
 //   - agent: managed Process activation, Step, and Effect, projected from the
-//     committed log an Observer consumes. WrapDispatcher propagates actual dispatch spans
-//     into downstream calls. Agent and tool durations use gen_ai.invoke_agent.duration
-//     and gen_ai.execute_tool.duration, matching their invocation spans.
+//     committed log an Observer consumes. Its Middleware decorates the run.Store
+//     and every dispatch through run.Config.DispatchMiddlewares, propagating
+//     actual dispatch spans into downstream calls. Agent and tool durations use
+//     gen_ai.invoke_agent.duration and gen_ai.execute_tool.duration, matching
+//     their invocation spans.
 //   - slog: development exporters that write all three signals to log/slog.
 //
 // Chat and speech streaming record gen_ai.client.operation.time_to_first_chunk

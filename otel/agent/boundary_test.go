@@ -68,14 +68,8 @@ func TestPhysicalBoundariesCompleteEveryOutcome(t *testing.T) {
 			t.Run(test.name+"/"+operation, func(t *testing.T) {
 				h := newObserverHarness(t)
 				next := &boundaryFailure{cause: test.cause, panicValue: test.panicValue}
-				store, err := h.observer.WrapStore(next)
-				if err != nil {
-					t.Fatal(err)
-				}
-				dispatcher, err := h.observer.WrapDispatcher(next)
-				if err != nil {
-					t.Fatal(err)
-				}
+				store := h.middleware.Store(next)
+				dispatcher := h.middleware.Dispatch(next)
 				root, err := run.ParseProcessID("root")
 				if err != nil {
 					t.Fatal(err)

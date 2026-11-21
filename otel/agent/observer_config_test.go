@@ -15,7 +15,6 @@ func TestObserverPreservesInstrumentConstructionFailures(t *testing.T) {
 		invokeAgentDurationMetricName, processCommittedStepsMetricName,
 		processPreparedEffectsMetricName, processAcceptedMessagesMetricName,
 		effectDurationMetricName,
-		durabilityDurationMetricName, durabilityBatchBytesMetricName,
 	} {
 		t.Run(name, func(t *testing.T) {
 			cause := errors.New("instrument configuration rejected")
@@ -23,8 +22,20 @@ func TestObserverPreservesInstrumentConstructionFailures(t *testing.T) {
 				MeterProvider: noop.NewMeterProvider(), name: name, cause: cause,
 			}
 			observer, err := NewObserver(ObserverConfig{MeterProvider: provider})
-			if observer != nil || !errors.Is(err, ErrInvalidObserverConfig) || !errors.Is(err, cause) {
+			if observer != nil || !errors.Is(err, ErrInvalidConfig) || !errors.Is(err, cause) {
 				t.Fatalf("observer=%v error=%v, want both configuration and provider failures", observer, err)
+			}
+		})
+	}
+}
+
+func TestMiddlewarePreservesInstrumentConstructionFailures(t *testing.T) {
+	for _, name := range []string{durabilityDurationMetricName, durabilityBatchBytesMetricName} {
+		t.Run(name, func(t *testing.T) {
+			cause := errors.New("instrument configuration rejected")
+			provider := rejectingMeterProvider{MeterProvider: noop.NewMeterProvider(), name: name, cause: cause}
+			if _, err := NewMiddleware(MiddlewareConfig{MeterProvider: provider}); !errors.Is(err, ErrInvalidConfig) || !errors.Is(err, cause) {
+				t.Fatalf("error=%v, want both configuration and provider failures", err)
 			}
 		})
 	}

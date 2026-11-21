@@ -16,11 +16,7 @@ func ExampleObserver_Consume() {
 		panic(err)
 	}
 	defer observer.Close(ctx)
-	store, err := observer.WrapStore(run.NewMemoryStore())
-	if err != nil {
-		panic(err)
-	}
-	runtime, err := run.New(ctx, run.Config{Store: store, Build: "telemetry-example"})
+	runtime, err := run.New(ctx, run.Config{Store: run.NewMemoryStore(), Build: "telemetry-example"})
 	if err != nil {
 		panic(err)
 	}
@@ -46,4 +42,36 @@ func ExampleObserver_Consume() {
 	}
 	fmt.Println(cursor > 0)
 	// Output: true
+}
+
+func ExampleMiddleware() {
+	ctx := context.Background()
+	middleware, err := agentotel.NewMiddleware(agentotel.MiddlewareConfig{})
+	if err != nil {
+		panic(err)
+	}
+	// The Store and every dispatch of every Program the Runtime runs are
+	// instrumented from the outside; Programs need no change.
+	runtime, err := run.New(ctx, run.Config{
+		Build: "telemetry-example", Store: middleware.Store(run.NewMemoryStore()),
+		DispatchMiddlewares: []run.DispatchMiddleware{middleware.Dispatch},
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer runtime.Close(ctx)
+	stage, err := workflow.Transform("double", func(_ context.Context, value int) (int, error) { return 2 * value, nil })
+	if err != nil {
+		panic(err)
+	}
+	program, err := workflow.Compile[int, int](runtime.Compiler(), workflow.Config{Name: "example.double", Description: "Double an integer", Revision: "double", Stages: []workflow.Stage{stage}})
+	if err != nil {
+		panic(err)
+	}
+	output, err := runtime.Run(ctx, program, 21)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(output)
+	// Output: 42
 }

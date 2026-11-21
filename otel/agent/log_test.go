@@ -22,9 +22,10 @@ import (
 )
 
 type observerHarness struct {
-	observer *agentotel.Observer
-	spans    *tracetest.SpanRecorder
-	metrics  *sdkmetric.ManualReader
+	observer   *agentotel.Observer
+	middleware agentotel.Middleware
+	spans      *tracetest.SpanRecorder
+	metrics    *sdkmetric.ManualReader
 }
 
 func newObserverHarness(t testing.TB) observerHarness {
@@ -37,6 +38,10 @@ func newObserverHarness(t testing.TB) observerHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	middleware, err := agentotel.NewMiddleware(agentotel.MiddlewareConfig{TracerProvider: tracer, MeterProvider: meter})
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		for _, close := range []func(context.Context) error{observer.Close, meter.Shutdown, tracer.Shutdown} {
 			if err := close(context.Background()); err != nil {
@@ -44,7 +49,7 @@ func newObserverHarness(t testing.TB) observerHarness {
 			}
 		}
 	})
-	return observerHarness{observer: observer, spans: spans, metrics: reader}
+	return observerHarness{observer: observer, middleware: middleware, spans: spans, metrics: reader}
 }
 
 type testDefinition struct{ descriptor run.Descriptor }
@@ -106,11 +111,10 @@ func (t testDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEm
 func startObservedExecution(t *testing.T, h observerHarness, next run.Dispatcher) (*run.Handle[string], *run.MemoryStore) {
 	t.Helper()
 	store := run.NewMemoryStore()
-	observedStore, err := h.observer.WrapStore(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := run.New(t.Context(), run.Config{Build: "otel-test", Store: observedStore})
+	runtime, err := run.New(t.Context(), run.Config{
+		Build: "otel-test", Store: h.middleware.Store(store),
+		DispatchMiddlewares: []run.DispatchMiddleware{h.middleware.Dispatch},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,11 +131,7 @@ func startObservedExecution(t *testing.T, h observerHarness, next run.Dispatcher
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := h.observer.WrapDispatcher(next)
-	if err != nil {
-		t.Fatal(err)
-	}
-	program, err := run.Bind[string, string](runtime.Compiler(), run.BindingConfig{Definition: testDefinition{descriptor}, Dispatcher: dispatcher, Revision: "test"})
+	program, err := run.Bind[string, string](runtime.Compiler(), run.BindingConfig{Definition: testDefinition{descriptor}, Dispatcher: next, Revision: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,10 +327,7 @@ func TestStoreDecorationPreservesErrorsAndDoesNotLeakDiagnostics(t *testing.T) {
 		t.Run(cause.Error(), func(t *testing.T) {
 			h := newObserverHarness(t)
 			next := &rejectedStore{cause: cause}
-			store, err := h.observer.WrapStore(next)
-			if err != nil {
-				t.Fatal(err)
-			}
+			store := h.middleware.Store(next)
 			root, _ := run.ParseProcessID("root")
 			if err := store.Append(t.Context(), run.Batch{Root: root}); !errors.Is(err, cause) {
 				t.Fatal(err)
@@ -362,19 +359,38 @@ func TestStoreDecorationPreservesErrorsAndDoesNotLeakDiagnostics(t *testing.T) {
 	}
 }
 
-func TestWrapperConstructionRejectsTypedNilAndClosedObserver(t *testing.T) {
+func TestMiddlewareDecoratesNothingWithoutAValueAndFailsUnconstructed(t *testing.T) {
 	h := newObserverHarness(t)
-	var store *run.MemoryStore
-	if _, err := h.observer.WrapStore(store); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
-		t.Fatal(err)
+	for _, next := range []run.Store{nil, (*run.MemoryStore)(nil)} {
+		if store := h.middleware.Store(next); store != nil {
+			t.Fatalf("Store(%T) = %T, want nil", next, store)
+		}
 	}
-	var dispatcher *testDispatcher
-	if _, err := h.observer.WrapDispatcher(dispatcher); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
-		t.Fatal(err)
+	for _, next := range []run.Dispatcher{nil, (*testDispatcher)(nil)} {
+		if dispatcher := h.middleware.Dispatch(next); dispatcher != nil {
+			t.Fatalf("Dispatch(%T) = %T, want nil", next, dispatcher)
+		}
 	}
-	var zero agentotel.Observer
-	if _, err := zero.WrapStore(run.NewMemoryStore()); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
-		t.Fatal(err)
+	var zero agentotel.Middleware
+	next := &rejectedStore{}
+	store := zero.Store(next)
+	root, _ := run.ParseProcessID("root")
+	if err := store.Append(t.Context(), run.Batch{Root: root}); !errors.Is(err, agentotel.ErrInvalidConfig) {
+		t.Fatalf("Append = %v", err)
+	}
+	if _, found, err := store.Load(t.Context(), root); !errors.Is(err, agentotel.ErrInvalidConfig) || found {
+		t.Fatalf("Load = %v, %v", found, err)
+	}
+	for _, err := range store.Read(t.Context(), root, 0) {
+		if !errors.Is(err, agentotel.ErrInvalidConfig) {
+			t.Fatalf("Read = %v", err)
+		}
+	}
+	if next.appends != 0 || next.loads != 0 || next.reads != 0 {
+		t.Fatal("an unconstructed Middleware passed calls through uninstrumented")
+	}
+	if _, err := zero.Dispatch(testDispatcher{}).Dispatch(t.Context(), run.EffectRequest{}, nil); !errors.Is(err, agentotel.ErrInvalidConfig) {
+		t.Fatalf("Dispatch = %v", err)
 	}
 }
 
@@ -382,10 +398,7 @@ func BenchmarkLogObservation(b *testing.B) {
 	h := newObserverHarness(b)
 	root, _ := run.ParseProcessID("root")
 	batch := run.Batch{Root: root, Epoch: 1, After: 2, Records: []run.Record{run.ControlRequested{Origin: run.ControlOriginHost, Process: root, Kind: run.ControlPause, Reason: "benchmark", At: time.Unix(1, 0)}}}
-	store, err := h.observer.WrapStore(&rejectedStore{})
-	if err != nil {
-		b.Fatal(err)
-	}
+	store := h.middleware.Store(&rejectedStore{})
 	b.ReportAllocs()
 	for b.Loop() {
 		if err := store.Append(b.Context(), batch); err != nil {

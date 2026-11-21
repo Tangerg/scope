@@ -10,10 +10,10 @@ import (
 	oteleval "github.com/Tangerg/scope/otel/eval"
 )
 
-// ExampleMiddleware_Wrap instruments an Assessment without changing its verdict.
+// ExampleMiddleware_Evaluate instruments an Assessment without changing its verdict.
 // The subject value never enters telemetry; only the metric identity, verdict,
 // and score become span and metric attributes.
-func ExampleMiddleware_Wrap() {
+func ExampleMiddleware_Evaluate() {
 	middleware, err := oteleval.NewMiddleware[string](oteleval.MiddlewareConfig{})
 	if err != nil {
 		panic(err)
@@ -31,15 +31,12 @@ func ExampleMiddleware_Wrap() {
 		Decision: &coreeval.Decision{Policy: coreeval.Policy{Name: "correctness"}, Verdict: coreeval.VerdictPass},
 		Score:    &score,
 	}
-	assessment, err := middleware.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
+	assessment := middleware.Evaluate(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
 		ID: "correctness",
 		Evaluator: coreeval.EvaluatorFunc[string](func(context.Context, string) (coreeval.Report, error) {
 			return report, nil
 		}),
 	})))
-	if err != nil {
-		panic(err)
-	}
 	got, err := assessment.Evaluate(context.Background(), "the answer under test")
 	if err != nil {
 		panic(err)

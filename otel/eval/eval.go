@@ -35,17 +35,15 @@ const (
 	errorTypeInvalidReport          = "eval.invalid_report"
 )
 
-var (
-	ErrInvalidConfig     = errors.New("otel/eval: invalid config")
-	ErrInvalidAssessment = errors.New("otel/eval: invalid assessment")
-)
+var ErrInvalidConfig = errors.New("otel/eval: invalid config")
 
 type MiddlewareConfig struct {
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
 }
 
-// Middleware binds the subject type once; Wrap accepts assessments of that type.
+// Middleware binds the subject type once; Evaluate decorates assessments of
+// that type.
 type Middleware[T any] struct {
 	tracer   trace.Tracer
 	duration metric.Float64Histogram
@@ -69,19 +67,29 @@ func NewMiddleware[T any](config MiddlewareConfig) (Middleware[T], error) {
 	}, nil
 }
 
-// Wrap decorates one assessment without observing or retaining its subject.
-// Assessment identity is bound before evaluation, including failed attempts.
-// IDs identify configured assessments and must not contain per-case data.
-func (m Middleware[T]) Wrap(next coreeval.Assessment[T]) (coreeval.Assessment[T], error) {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
-		return coreeval.Assessment[T]{}, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+// Evaluate decorates one assessment under the same identity without observing
+// or retaining its subject. Assessment identity is bound before evaluation,
+// including failed attempts. IDs identify configured assessments and must not
+// contain per-case data. An unconstructed Middleware yields an assessment
+// whose every evaluation fails with ErrInvalidConfig; an assessment without a
+// valid identity is returned unchanged and keeps failing its own validation.
+func (m Middleware[T]) Evaluate(next coreeval.Assessment[T]) coreeval.Assessment[T] {
+	assessment, err := coreeval.NewAssessment(coreeval.AssessmentConfig[T]{ID: next.ID(), Evaluator: m.observe(next)})
+	if err != nil {
+		return next
 	}
-	if err := next.Validate(); err != nil {
-		return coreeval.Assessment[T]{}, fmt.Errorf("%w: %w", ErrInvalidAssessment, err)
-	}
+	return assessment
+}
 
+// observe returns the evaluator that spans and measures each evaluation of
+// next.
+func (m Middleware[T]) observe(next coreeval.Assessment[T]) coreeval.Evaluator[T] {
+	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
+		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return coreeval.EvaluatorFunc[T](func(context.Context, T) (coreeval.Report, error) { return coreeval.Report{}, err })
+	}
 	identity := attribute.String(assessmentIDAttribute, string(next.ID()))
-	evaluator := coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (report coreeval.Report, err error) {
+	return coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (report coreeval.Report, err error) {
 		startedAt := time.Now()
 		operation := attribute.String(operationAttribute, operationEvaluate)
 		spanCtx, span := m.tracer.Start(ctx, spanName,
@@ -113,7 +121,6 @@ func (m Middleware[T]) Wrap(next coreeval.Assessment[T]) (coreeval.Assessment[T]
 		}
 		return report, nil
 	})
-	return coreeval.NewAssessment(coreeval.AssessmentConfig[T]{ID: next.ID(), Evaluator: evaluator})
 }
 
 func reportAttributes(report coreeval.Report) []attribute.KeyValue {

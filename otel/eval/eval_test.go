@@ -41,15 +41,12 @@ func TestMiddlewareObservesOutcomeWithoutSubject(t *testing.T) {
 	})
 	score, _ := coreeval.NewScore(0.9)
 	want := coreeval.Report{Metric: metric, Decision: &coreeval.Decision{Policy: coreeval.Policy{Name: "correctness"}, Verdict: coreeval.VerdictPass}, Score: &score}
-	assessment, err := middleware.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
+	assessment := middleware.Evaluate(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
 		ID: "correctness",
 		Evaluator: coreeval.EvaluatorFunc[string](func(context.Context, string) (coreeval.Report, error) {
 			return want, nil
 		}),
 	})))
-	if err != nil {
-		t.Fatal(err)
-	}
 	const subject = "sensitive evaluation subject"
 	got, err := assessment.Evaluate(t.Context(), subject)
 	if err != nil || got.Metric.String() != want.Metric.String() {
@@ -69,19 +66,23 @@ func TestMiddlewareObservesOutcomeWithoutSubject(t *testing.T) {
 	}
 }
 
-func TestMiddlewareRejectsInvalidConstruction(t *testing.T) {
-	var zero oteleval.Middleware[int]
-	if _, err := zero.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[int]{ID: "check", Evaluator: coreeval.EvaluatorFunc[int](func(context.Context, int) (coreeval.Report, error) {
+func TestInvalidDecorationFailsEveryEvaluation(t *testing.T) {
+	calls := 0
+	next := lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[int]{ID: "check", Evaluator: coreeval.EvaluatorFunc[int](func(context.Context, int) (coreeval.Report, error) {
+		calls++
 		return coreeval.Report{}, nil
-	})}))); !errors.Is(err, oteleval.ErrInvalidConfig) {
-		t.Fatalf("zero Wrap error = %v", err)
+	})}))
+	var zero oteleval.Middleware[int]
+	unconstructed := zero.Evaluate(next)
+	if _, err := unconstructed.Evaluate(t.Context(), 1); !errors.Is(err, oteleval.ErrInvalidConfig) || unconstructed.ID() != "check" || calls != 0 {
+		t.Fatalf("unconstructed Evaluate error = %v, calls = %d", err, calls)
 	}
 	middleware, err := oteleval.NewMiddleware[int](oteleval.MiddlewareConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := middleware.Wrap(coreeval.Assessment[int]{}); !errors.Is(err, oteleval.ErrInvalidAssessment) {
-		t.Fatalf("zero assessment Wrap error = %v", err)
+	if _, err := middleware.Evaluate(coreeval.Assessment[int]{}).Evaluate(t.Context(), 1); !errors.Is(err, coreeval.ErrInvalidAssessment) {
+		t.Fatalf("invalid assessment evaluated: %v", err)
 	}
 }
 
@@ -119,7 +120,7 @@ func TestAssessmentIdentityPrecedesEveryOutcome(t *testing.T) {
 				invalidScore := coreeval.Score(math.NaN())
 				want.Score = &invalidScore
 			}
-			assessment, err := middleware.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
+			assessment := middleware.Evaluate(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
 				ID: "quality.check",
 				Evaluator: coreeval.EvaluatorFunc[string](func(_ context.Context, subject string) (coreeval.Report, error) {
 					if subject != secret || len(spans.Started()) != 1 {
@@ -139,8 +140,8 @@ func TestAssessmentIdentityPrecedesEveryOutcome(t *testing.T) {
 					return want, nil
 				}),
 			})))
-			if err != nil || assessment.ID() != "quality.check" {
-				t.Fatalf("Wrap = (%v, %v)", assessment.ID(), err)
+			if assessment.ID() != "quality.check" {
+				t.Fatalf("Evaluate kept identity %q", assessment.ID())
 			}
 			var got coreeval.Report
 			var callErr error
