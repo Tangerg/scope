@@ -283,8 +283,9 @@ func (h *handler) SendMessage(ctx context.Context, p *sdk.SendMessageRequest) (s
 	return nil, sdk.ErrInternalError
 }
 
+// A turn settles when the task can no longer change or waits on the client.
 func settlesTurn(s sdk.TaskState) bool {
-	return s == sdk.TaskStateCompleted || s == sdk.TaskStateFailed || s == sdk.TaskStateCanceled || s == sdk.TaskStateInputRequired
+	return s.Terminal() || s == sdk.TaskStateInputRequired
 }
 
 func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, error] {
