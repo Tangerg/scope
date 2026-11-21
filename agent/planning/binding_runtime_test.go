@@ -19,7 +19,7 @@ func TestCompiledActionBindingsKeepTheirExecutorAcrossChildSlots(t *testing.T) {
 	prepare := require(planning.NewAction(planning.ActionConfig{Name: "prepare", Description: "Prepare the work.", Effects: []planning.Condition{ready}}))
 	finish := require(planning.NewAction(planning.ActionConfig{Name: "finish", Description: "Finish prepared work.", Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done}}))
 	childAction := require(planning.NewAction(planning.ActionConfig{Name: "unused", Description: "Run an unrelated child.", Effects: []planning.Condition{unused}}))
-	childStage := require(workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil }))
+	childStage := require(workflow.Transform("identity", func(value string) (string, error) { return value, nil }))
 	childProgram := require(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{
 		Name: "test.planning.unused-child", Description: "Keep a child action between dispatcher actions.", Revision: "identity", Stages: []workflow.Stage{childStage},
 	}))

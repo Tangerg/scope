@@ -1,7 +1,6 @@
 package trajectory_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -11,7 +10,7 @@ import (
 
 func TestTreeUsageIncludesReapedChildren(t *testing.T) {
 	runtime := newRuntime(t, run.NewMemoryStore())
-	stage, err := workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil })
+	stage, err := workflow.Transform("identity", func(value string) (string, error) { return value, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -338,7 +338,7 @@ func TestOrchestrationRefusesAnUnusablePlanAndPartialWorkerEvidence(t *testing.T
 				}
 				out.ModelResponse = r
 			}
-			if tasks, err := parseWorkPlan(ctx, out); len(tasks) != 0 || err == nil {
+			if tasks, err := parseWorkPlan(out); len(tasks) != 0 || err == nil {
 				t.Fatalf("published tasks=%v err=%v", tasks, err)
 			}
 		})
@@ -353,7 +353,7 @@ func TestOrchestrationRefusesAnUnusablePlanAndPartialWorkerEvidence(t *testing.T
 	if r != nil || err == nil {
 		t.Fatal("empty objective acquired a work plan", err)
 	}
-	if result, err := executeWorkerTask(ctx, workerTask{ID: "facts"}); result.Finding != "" || err == nil {
+	if result, err := executeWorkerTask(workerTask{ID: "facts"}); result.Finding != "" || err == nil {
 		t.Fatal("published an incomplete task finding", result, err)
 	}
 }

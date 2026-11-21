@@ -30,7 +30,7 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	case phaseReady:
 		return e.advance(ctx, turn)
 	case phaseChild:
-		return e.advanceChild(ctx, turn)
+		return e.advanceChild(turn)
 	case phaseFanout:
 		return e.advanceFanout(ctx, turn)
 	default:
@@ -49,7 +49,7 @@ func (e *execution) advance(ctx context.Context, turn run.Turn) (run.Transition,
 	stage := e.stage()
 	switch stage.kind {
 	case StageKindTransform:
-		value, err := stage.transform(ctx, e.state.CurrentValue)
+		value, err := stage.transform(e.state.CurrentValue)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -58,7 +58,7 @@ func (e *execution) advance(ctx context.Context, turn run.Turn) (run.Transition,
 	case StageKindCall:
 		return e.startSingleChild(turn, 0, stage.call, "", 0)
 	case StageKindSwitch:
-		selected, err := stage.switcher.selectCase(ctx, e.state.CurrentValue)
+		selected, err := stage.switcher.selectCase(e.state.CurrentValue)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -110,7 +110,7 @@ func (e *execution) stageInvocationLabel() string {
 	}
 }
 
-func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transition, error) {
+func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
 	invocation := &e.state.Child.Invocation
 	var consumed uint32
 	for _, message := range turn.Messages {
@@ -140,7 +140,7 @@ func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transi
 		return run.Fail(consumed, *failure)
 	}
 	if e.stage().kind == StageKindLoop {
-		return e.finishLoopIteration(ctx, turn, consumed, output)
+		return e.finishLoopIteration(turn, consumed, output)
 	}
 	e.state.CurrentValue = output
 	return e.finishStage(consumed)
@@ -160,14 +160,13 @@ func (e *execution) stage() Stage {
 }
 
 func (e *execution) finishLoopIteration(
-	ctx context.Context,
 	turn run.Turn,
 	consumedMessages uint32,
 	output run.Payload,
 ) (run.Transition, error) {
 	stage := e.stage()
 	iteration := e.state.Child.Iteration
-	satisfied, err := stage.loop.predicate(ctx, output)
+	satisfied, err := stage.loop.predicate(output)
 	if err != nil {
 		return run.Transition{}, err
 	}

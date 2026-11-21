@@ -80,14 +80,14 @@ func TestIncompleteEvidenceCannotBeRoutedOrTurnedIntoAVote(t *testing.T) {
 	if err == nil || report.Normalized != "" || evidence.ProcessCount() != 0 {
 		t.Fatal("empty request produced a partial report", report, evidence, err)
 	}
-	if summary, err := summarizeChain(ctx, chainState{Normalized: "X", Summary: "forged"}); summary.Summary != "" || err == nil {
+	if summary, err := summarizeChain(chainState{Normalized: "X", Summary: "forged"}); summary.Summary != "" || err == nil {
 		t.Fatal("overwrote an already-owned summary")
 	}
-	if route, err := selectPatternRoute(ctx, chainState{Normalized: "X"}); route != "" || err == nil {
+	if route, err := selectPatternRoute(chainState{Normalized: "X"}); route != "" || err == nil {
 		t.Fatal("routed incomplete evidence", route)
 	}
 	for _, votes := range [][]ballot{nil, {{Choice: ballotChoice("abstain")}}} {
-		report, err := reduceBallots(ctx, findingBundle{}, votes)
+		report, err := reduceBallots(findingBundle{}, votes)
 		if err == nil || report.TotalVotes != 0 || report.DecisionVotes != 0 {
 			t.Fatalf("invalid vote report=%v err=%v", report, err)
 		}

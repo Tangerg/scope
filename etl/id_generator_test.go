@@ -1,7 +1,6 @@
 package etl_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -26,11 +25,11 @@ func TestSHA256GeneratorDeterministic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := generator.Generate(t.Context(), doc)
+	first, err := generator.Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := generator.Generate(t.Context(), doc)
+	second, err := generator.Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +44,7 @@ func TestSHA256IdentityIgnoresJSONPresentationWithoutRoundingNumbers(t *testing.
 		t.Helper()
 		doc := newDocument(t, "same")
 		doc.Metadata["nested"] = json.RawMessage(raw)
-		id, err := generator.Generate(t.Context(), doc)
+		id, err := generator.Generate(doc)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,11 +72,11 @@ func TestSHA256GeneratorUsesDocumentContentButNotExistingID(t *testing.T) {
 	first := newDocument(t, "hello")
 	second := newDocument(t, "world")
 
-	digestA, err := generator.Generate(t.Context(), first)
+	digestA, err := generator.Generate(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digestB, err := generator.Generate(t.Context(), second)
+	digestB, err := generator.Generate(second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +85,7 @@ func TestSHA256GeneratorUsesDocumentContentButNotExistingID(t *testing.T) {
 	}
 
 	first.ID = "already-assigned"
-	again, err := generator.Generate(t.Context(), first)
+	again, err := generator.Generate(first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,15 +96,15 @@ func TestSHA256GeneratorUsesDocumentContentButNotExistingID(t *testing.T) {
 
 func TestSHA256GeneratorSaltSeparatesStreams(t *testing.T) {
 	doc := newDocument(t, "doc")
-	plain, err := etl.NewSHA256IDGenerator(nil).Generate(t.Context(), doc)
+	plain, err := etl.NewSHA256IDGenerator(nil).Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	salted, err := etl.NewSHA256IDGenerator([]byte("tenant-A")).Generate(t.Context(), doc)
+	salted, err := etl.NewSHA256IDGenerator([]byte("tenant-A")).Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherSalt, err := etl.NewSHA256IDGenerator([]byte("tenant-B")).Generate(t.Context(), doc)
+	otherSalt, err := etl.NewSHA256IDGenerator([]byte("tenant-B")).Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,10 +119,10 @@ func TestSHA256GeneratorSaltSeparatesStreams(t *testing.T) {
 func TestSHA256GeneratorRejectsInvalidDocument(t *testing.T) {
 	doc := newDocument(t, "doc")
 	doc.Metadata["invalid"] = json.RawMessage(`{`)
-	if _, err := etl.NewSHA256IDGenerator(nil).Generate(t.Context(), doc); err == nil {
+	if _, err := etl.NewSHA256IDGenerator(nil).Generate(doc); err == nil {
 		t.Fatal("invalid metadata produced an ID")
 	}
-	if _, err := etl.NewSHA256IDGenerator(nil).Generate(t.Context(), nil); !errors.Is(err, etl.ErrNilDocument) {
+	if _, err := etl.NewSHA256IDGenerator(nil).Generate(nil); !errors.Is(err, etl.ErrNilDocument) {
 		t.Fatalf("nil document error = %v, want ErrNilDocument", err)
 	}
 }
@@ -131,7 +130,7 @@ func TestSHA256GeneratorRejectsInvalidDocument(t *testing.T) {
 func TestUUIDGeneratorRejectsInvalidDocument(t *testing.T) {
 	doc := newDocument(t, "doc")
 	doc.Metadata["invalid"] = json.RawMessage(`{`)
-	if _, err := (etl.UUIDGenerator{}).Generate(t.Context(), doc); err == nil {
+	if _, err := (etl.UUIDGenerator{}).Generate(doc); err == nil {
 		t.Fatal("invalid document produced a UUID")
 	}
 }
@@ -142,11 +141,11 @@ func TestSHA256GeneratorCopiesSalt(t *testing.T) {
 	salt[0] = 'X'
 	doc := newDocument(t, "doc")
 
-	got, err := generator.Generate(t.Context(), doc)
+	got, err := generator.Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := etl.NewSHA256IDGenerator([]byte("tenant-A")).Generate(t.Context(), doc)
+	want, err := etl.NewSHA256IDGenerator([]byte("tenant-A")).Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,25 +154,14 @@ func TestSHA256GeneratorCopiesSalt(t *testing.T) {
 	}
 }
 
-func TestGeneratorsHonorCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	doc := newDocument(t, "doc")
-	for _, generator := range []etl.IDGenerator{etl.NewSHA256IDGenerator(nil), etl.UUIDGenerator{}} {
-		if _, err := generator.Generate(ctx, doc); !errors.Is(err, context.Canceled) {
-			t.Fatalf("Generate() error = %v, want context.Canceled", err)
-		}
-	}
-}
-
 func TestUUIDGeneratorReturnsUniqueIDs(t *testing.T) {
 	generator := etl.UUIDGenerator{}
 	doc := newDocument(t, "same input")
-	first, err := generator.Generate(t.Context(), doc)
+	first, err := generator.Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := generator.Generate(t.Context(), doc)
+	second, err := generator.Generate(doc)
 	if err != nil {
 		t.Fatal(err)
 	}

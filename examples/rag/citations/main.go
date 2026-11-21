@@ -87,7 +87,7 @@ func ingest(ctx context.Context, encoder *vector.Encoder, source, raw string) (*
 	if err != nil {
 		return nil, err
 	}
-	docs, err = assign.Assign(ctx, docs)
+	docs, err = assign.Assign(docs)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func ingest(ctx context.Context, encoder *vector.Encoder, source, raw string) (*
 	if err != nil {
 		return nil, err
 	}
-	chunks, err = assign.Assign(ctx, chunks)
+	chunks, err = assign.Assign(chunks)
 	if err != nil {
 		return nil, err
 	}

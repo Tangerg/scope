@@ -248,7 +248,7 @@ func TestToolDefiniteFailuresRemainModelFeedbackAndNeverAdvertise(t *testing.T) 
 		tools := toolSetTest(t, scriptTool{name: "write", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 			calls++
 			return tool.Result{}, mustValue(tool.NewFailure(tool.FailureConfig{Kind: kind, Cause: errors.New("private cause"), Output: tool.NewTextOutput("public refusal")}))
-		}, advertise: func(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+		}, advertise: func(tool.Invocation, tool.Result) ([]string, error) {
 			t.Error("unsuccessful tool was given advertisement authority")
 			return nil, nil
 		}})

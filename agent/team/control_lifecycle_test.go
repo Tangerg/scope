@@ -1,7 +1,6 @@
 package team
 
 import (
-	"context"
 	jsonv2 "encoding/json/v2"
 	"testing"
 
@@ -14,8 +13,8 @@ func TestTeamControlsTaskThatExitedDuringCoordinatorTurn(t *testing.T) {
 	for _, operation := range []string{"signal", "cancel"} {
 		t.Run(operation, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
-			worker := transformed(t, runtime, "test.worker", func(_ context.Context, value string) (string, error) { return value, nil })
-			coordinator := transformed(t, runtime, "test.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+			worker := transformed(t, runtime, "test.worker", func(value string) (string, error) { return value, nil })
+			coordinator := transformed(t, runtime, "test.coordinator", func(turn Turn) (Decision, error) {
 				return Decision{State: turn.State, Output: input("unused")}, nil
 			})
 			definition := compileTeam(t, runtime, coordinator, worker).Definition()

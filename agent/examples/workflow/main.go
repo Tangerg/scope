@@ -105,7 +105,7 @@ func newManagedWorkflow(compiler *agentrun.Compiler) (agentrun.Program[request, 
 	normalizer, err := transformProgram(compiler,
 		"example.workflow.normalizer",
 		"Normalize one review request.",
-		func(_ context.Context, input request) (normalizedRequest, error) {
+		func(input request) (normalizedRequest, error) {
 			return normalizedRequest{Text: strings.TrimSpace(input.Text)}, nil
 		},
 	)
@@ -133,7 +133,7 @@ func newManagedWorkflow(compiler *agentrun.Compiler) (agentrun.Program[request, 
 	}
 	reviewStage, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, verdict, reviewReport]{
 		ID: "review", Branches: branches, WindowSize: uint32(len(reviewers)),
-		Reduce: func(_ context.Context, request normalizedRequest, verdicts []verdict) (reviewReport, error) {
+		Reduce: func(request normalizedRequest, verdicts []verdict) (reviewReport, error) {
 			report := reviewReport{Request: request.Text}
 			for index, reviewer := range reviewers {
 				report.Reviews = append(report.Reviews, review{Reviewer: reviewer, Verdict: verdicts[index].Verdict})
@@ -154,7 +154,7 @@ func reviewerProgram(compiler *agentrun.Compiler, reviewer string) (agentrun.Pro
 	return transformProgram(compiler,
 		"example.workflow.reviewer_"+reviewer,
 		"Return one deterministic "+reviewer+" review.",
-		func(_ context.Context, _ normalizedRequest) (verdict, error) {
+		func(_ normalizedRequest) (verdict, error) {
 			return verdict{Verdict: "ready"}, nil
 		},
 	)

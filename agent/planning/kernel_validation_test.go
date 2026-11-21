@@ -129,7 +129,7 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {
 	config := validationConfig(t)
 	runtime := conformancetest.Runtime(t, run.Config{})
-	stage := planningValue(workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil }))
+	stage := planningValue(workflow.Transform("identity", func(value string) (string, error) { return value, nil }))
 	program := planningValue(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.planning.child", Description: "Perform one planning action.", Revision: "one", Stages: []workflow.Stage{stage}}))
 	config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
 	definition := planningValue(config.definition())
@@ -259,7 +259,7 @@ func TestPlanningDispatcherRejectsLocalContractErrorsBeforeExternalWork(t *testi
 
 func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
-	stage := planningValue(workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil }))
+	stage := planningValue(workflow.Transform("identity", func(value string) (string, error) { return value, nil }))
 	program := planningValue(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.planning.child-input", Description: "Perform one planning action.", Revision: "one", Stages: []workflow.Stage{stage}}))
 	for _, test := range []struct {
 		name  string
@@ -291,7 +291,7 @@ func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
 // so the two schemas must agree before any Program is built.
 func TestPlanningRejectsChildWhoseSchemaCannotAcceptThePlanningInput(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
-	stage := planningValue(workflow.Transform("count", func(_ context.Context, value int) (int, error) { return value, nil }))
+	stage := planningValue(workflow.Transform("count", func(value int) (int, error) { return value, nil }))
 	program := planningValue(workflow.Compile[int, int](runtime.Compiler(), workflow.Config{Name: "test.planning.int-child", Description: "Accept a number.", Revision: "one", Stages: []workflow.Stage{stage}}))
 	config := validationConfig(t)
 	config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
@@ -302,7 +302,7 @@ func TestPlanningRejectsChildWhoseSchemaCannotAcceptThePlanningInput(t *testing.
 
 func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
-	stage := planningValue(workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil }))
+	stage := planningValue(workflow.Transform("identity", func(value string) (string, error) { return value, nil }))
 	program := planningValue(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.planning.rejected-child", Description: "Perform one planning action.", Revision: "one", Stages: []workflow.Stage{stage}}))
 	config := validationConfig(t)
 	config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration

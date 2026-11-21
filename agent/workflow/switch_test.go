@@ -18,18 +18,18 @@ type switchInput struct {
 
 func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 	left := mustProgram(t, mustDefinition(t, "test.switch_left",
-		mustTransform(t, "left", func(_ context.Context, input switchInput) (numberOutput, error) {
+		mustTransform(t, "left", func(input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value + 10}, nil
 		}),
 	), "switch-left")
 	right := mustProgram(t, mustDefinition(t, "test.switch_right",
-		mustTransform(t, "right", func(_ context.Context, input switchInput) (numberOutput, error) {
+		mustTransform(t, "right", func(input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value + 20}, nil
 		}),
 	), "switch-right")
 	stage, err := Switch(SwitchConfig[switchInput]{
 		ID:     "choose",
-		Select: func(_ context.Context, input switchInput) (string, error) { return input.Case, nil },
+		Select: func(input switchInput) (string, error) { return input.Case, nil },
 		Cases: []SwitchCase{
 			{ID: "left", Child: run.ChildBinding{Program: left, Budget: mustBudget(t)}},
 			{ID: "right", Child: run.ChildBinding{Program: right, Budget: mustBudget(t)}},
@@ -87,12 +87,12 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 
 func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "test.switch_known",
-		mustTransform(t, "known", func(_ context.Context, input switchInput) (numberOutput, error) {
+		mustTransform(t, "known", func(input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value}, nil
 		}),
 	), "switch-known")
 	stage, err := Switch(SwitchConfig[switchInput]{
-		ID: "choose", Select: func(context.Context, switchInput) (string, error) { return "missing", nil },
+		ID: "choose", Select: func(switchInput) (string, error) { return "missing", nil },
 		Cases: []SwitchCase{{ID: "known", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}},
 	})
 	if err != nil {
@@ -116,17 +116,17 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 
 func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
 	valid := mustProgram(t, mustDefinition(t, "test.switch_valid",
-		mustTransform(t, "valid", func(_ context.Context, input switchInput) (numberOutput, error) {
+		mustTransform(t, "valid", func(input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value}, nil
 		}),
 	), "switch-valid")
 	wrongInput := mustProgram(t, mustDefinition(t, "test.switch_wrong_input",
-		mustTransform(t, "wrong", func(_ context.Context, input numberInput) (numberOutput, error) {
+		mustTransform(t, "wrong", func(input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		}),
 	), "switch-wrong-input")
 	wrongOutput := mustProgram(t, mustDefinition(t, "test.switch_wrong_output",
-		mustTransform(t, "wrong", func(_ context.Context, input switchInput) (string, error) {
+		mustTransform(t, "wrong", func(input switchInput) (string, error) {
 			return input.Case, nil
 		}),
 	), "switch-wrong-output")
@@ -146,7 +146,7 @@ func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Switch(SwitchConfig[switchInput]{
-				ID: "choose", Select: func(context.Context, switchInput) (string, error) { return "same", nil }, Cases: cases,
+				ID: "choose", Select: func(switchInput) (string, error) { return "same", nil }, Cases: cases,
 			})
 			if !errors.Is(err, ErrInvalidStage) {
 				t.Fatalf("Switch error = %v", err)

@@ -168,7 +168,7 @@ func TestControlAndFailureEvidenceSurvivesBehaviorProjection(t *testing.T) {
 	if _, digestErr := actual.BehaviorDigest(func(run.Payload) (json.RawMessage, error) { return json.RawMessage(`"answered"`), nil }); digestErr != nil {
 		t.Fatal(digestErr)
 	}
-	stage, err := workflow.Transform("fail", func(context.Context, string) (string, error) { return "", errors.New("known execution failure") })
+	stage, err := workflow.Transform("fail", func(string) (string, error) { return "", errors.New("known execution failure") })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		prepare, err := workflow.Transform("prepare", func(context.Context, struct{}) (interaction.Input, error) {
+		prepare, err := workflow.Transform("prepare", func(struct{}) (interaction.Input, error) {
 			return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("leaf question"))}}, nil
 		})
 		if err != nil {
@@ -213,7 +213,7 @@ func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		finish, err := workflow.Transform("text", func(_ context.Context, value interaction.Output) (string, error) {
+		finish, err := workflow.Transform("text", func(value interaction.Output) (string, error) {
 			return value.ModelResponse.Text(), nil
 		})
 		if err != nil {

@@ -203,9 +203,9 @@ func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[t
 	localBranch, err := workflow.Adapt(compiler, workflow.AdaptConfig{
 		Name: "example.composition.local", Description: "Adapt a pure Definition to the composition's input and text output.",
 		Revision: "composition-local-branch-v1", Budget: leafBudget,
-	}, local, func(_ context.Context, input compositionInput) (textInput, error) {
+	}, local, func(input compositionInput) (textInput, error) {
 		return textInput{Text: input.Prompt}, nil
-	}, func(_ context.Context, output textOutput) (string, error) {
+	}, func(output textOutput) (string, error) {
 		return output.Text, nil
 	})
 	if err != nil {
@@ -214,9 +214,9 @@ func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[t
 	modelBranch, err := workflow.Adapt(compiler, workflow.AdaptConfig{
 		Name: "example.composition.model", Description: "Render model input, invoke it, and decode its output.",
 		Revision: "composition-model-branch-v1", Budget: leafBudget,
-	}, model, func(_ context.Context, input compositionInput) (interaction.Input, error) {
+	}, model, func(input compositionInput) (interaction.Input, error) {
 		return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(input.Prompt))}}, nil
-	}, func(_ context.Context, output interaction.Output) (string, error) {
+	}, func(output interaction.Output) (string, error) {
 		return chatclient.Text().Decode(output.ModelResponse)
 	})
 	if err != nil {
@@ -232,7 +232,7 @@ func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[t
 	}
 	fork, err := workflow.Fork(workflow.ForkConfig[compositionInput, string, compositionOutput]{
 		ID: "compose", WindowSize: uint32(len(branches)), Branches: branches,
-		Reduce: func(_ context.Context, _ compositionInput, results []string) (compositionOutput, error) {
+		Reduce: func(_ compositionInput, results []string) (compositionOutput, error) {
 			return compositionOutput{Local: results[compositionLocalIndex], Model: results[compositionModelIndex]}, nil
 		},
 	})

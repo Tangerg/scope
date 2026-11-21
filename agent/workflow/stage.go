@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/enum"
@@ -47,11 +46,12 @@ func (s StageKind) Valid() bool {
 func (s StageKind) String() string { return enum.String(s) }
 
 // TransformFunc is a bounded, deterministic, side-effect-free reduction. It
-// must honor ctx cancellation during CPU work. External work belongs in a Call
-// stage that starts a child Process; ctx is not a source of domain input.
-type TransformFunc[I, O any] func(ctx context.Context, input I) (O, error)
+// runs inside the Step and is replayed on recovery, so it takes no context.
+// External work, and computation long enough to need cancellation, belongs in
+// a Call stage, whose child Process does it once as a recorded Effect.
+type TransformFunc[I, O any] func(input I) (O, error)
 
-type transformStage func(context.Context, run.Payload) (run.Payload, error)
+type transformStage func(run.Payload) (run.Payload, error)
 
 // Stage is an immutable operation in one Workflow definition. Values can only
 // be constructed by this package, keeping the execution algebra closed.
@@ -88,13 +88,13 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: transform %q output schema: %w", ErrInvalidStage, id, err)
 	}
-	apply := func(ctx context.Context, input run.Payload) (run.Payload, error) {
+	apply := func(input run.Payload) (run.Payload, error) {
 		// The value's producer and Restore already hold it to this Stage's input.
 		decoded, err := input.Decode[I]()
 		if err != nil {
 			return run.Payload{}, fmt.Errorf("transform %q decode input: %w", id, err)
 		}
-		output, err := transform(ctx, decoded)
+		output, err := transform(decoded)
 		if err != nil {
 			return run.Payload{}, fmt.Errorf("transform %q: %w", id, err)
 		}

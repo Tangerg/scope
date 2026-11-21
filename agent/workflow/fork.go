@@ -10,10 +10,11 @@ import (
 )
 
 // ForkReducer combines the Fork's input with its branch outputs in
-// declaration order; branches therefore return only what they add. It must be
-// bounded, deterministic, side-effect-free, honor ctx cancellation, and never
-// retain the slice. Context is not a source of domain input.
-type ForkReducer[I, B, O any] func(ctx context.Context, input I, branchOutputs []B) (O, error)
+// declaration order; branches therefore return only what they add. Like
+// TransformFunc it runs inside the replayed Step, so it must be bounded,
+// deterministic and side-effect-free, takes no context, and must never retain
+// the slice.
+type ForkReducer[I, B, O any] func(input I, branchOutputs []B) (O, error)
 
 type ForkBranch struct {
 	ID    string
@@ -152,7 +153,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		if err != nil {
 			return run.Payload{}, err
 		}
-		result, err := reducer(ctx, value, values)
+		result, err := reducer(value, values)
 		if err != nil {
 			return run.Payload{}, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
 		}

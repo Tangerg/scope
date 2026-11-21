@@ -11,44 +11,46 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
+// A callback takes no context, so a process canceled while one runs ends
+// once the callback returns, and the Runtime discards that Step's result.
+func TestCancellationDuringACallbackDiscardsItsStep(t *testing.T) {
 	for _, test := range []struct {
 		name  string
-		stage func(*testing.T, run.Program[run.Payload, run.Payload], chan struct{}) (Stage, error)
+		stage func(*testing.T, run.Program[run.Payload, run.Payload], workflowCallbackGate) (Stage, error)
 	}{
 		{
 			name: "transform",
-			stage: func(_ *testing.T, _ run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
-				return Transform("work", canceledWorkflowCallback[numberInput, numberInput](entered))
+			stage: func(_ *testing.T, _ run.Program[run.Payload, run.Payload], gate workflowCallbackGate) (Stage, error) {
+				return Transform("work", blockingWorkflowCallback[numberInput, numberInput](gate))
 			},
 		},
 		{
 			name: "switch",
-			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], gate workflowCallbackGate) (Stage, error) {
 				return Switch(SwitchConfig[numberInput]{
-					ID: "work", Select: canceledWorkflowCallback[numberInput, string](entered),
+					ID: "work", Select: blockingWorkflowCallback[numberInput, string](gate),
 					Cases: []SwitchCase{{ID: "child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}},
 				})
 			},
 		},
 		{
 			name: "fork",
-			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], gate workflowCallbackGate) (Stage, error) {
 				return Fork(ForkConfig[numberInput, numberInput, numberInput]{
 					ID: "work", WindowSize: 1,
 					Branches: []ForkBranch{{ID: "child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}},
-					Reduce: func(ctx context.Context, _ numberInput, outputs []numberInput) (numberInput, error) {
-						return canceledWorkflowCallback[[]numberInput, numberInput](entered)(ctx, outputs)
+					Reduce: func(_ numberInput, outputs []numberInput) (numberInput, error) {
+						return blockingWorkflowCallback[[]numberInput, numberInput](gate)(outputs)
 					},
 				})
 			},
 		},
 		{
 			name: "loop",
-			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], gate workflowCallbackGate) (Stage, error) {
 				return Loop(LoopConfig[numberInput]{
 					ID: "work", Body: run.ChildBinding{Program: child, Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
-					Predicate: canceledWorkflowCallback[numberInput, bool](entered),
+					Predicate: blockingWorkflowCallback[numberInput, bool](gate),
 				})
 			},
 		},
@@ -56,12 +58,12 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				child := mustProgram(t, mustDefinition(t, "test.cancel_child",
-					mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) {
+					mustTransform(t, "identity", func(input numberInput) (numberInput, error) {
 						return input, nil
 					}),
 				), "cancel-child")
-				entered := make(chan struct{})
-				stage, err := test.stage(t, child, entered)
+				gate := workflowCallbackGate{entered: make(chan struct{}), release: make(chan struct{})}
+				stage, err := test.stage(t, child, gate)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -75,10 +77,11 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				<-entered
+				<-gate.entered
 				if cancellationErr := process.Cancel(t.Context(), "stop workflow computation"); cancellationErr != nil {
 					t.Fatal(cancellationErr)
 				}
+				close(gate.release)
 				result, err := process.Await(t.Context())
 				if err != nil || result.Termination().Status() != run.StatusCanceled ||
 					result.Termination().Cause() != run.TerminationCauseHostCancellation {
@@ -92,18 +95,25 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 	}
 }
 
-func canceledWorkflowCallback[I, O any](entered chan struct{}) func(context.Context, I) (O, error) {
-	return func(ctx context.Context, _ I) (output O, err error) {
-		close(entered)
-		<-ctx.Done()
-		return output, ctx.Err()
+// workflowCallbackGate holds a callback until the test has canceled its
+// process.
+type workflowCallbackGate struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func blockingWorkflowCallback[I, O any](gate workflowCallbackGate) func(I) (O, error) {
+	return func(I) (output O, err error) {
+		close(gate.entered)
+		<-gate.release
+		return output, nil
 	}
 }
 
 func TestWorkflowRejectsCanceledStepBeforeCallingTransform(t *testing.T) {
 	called := false
 	definition := mustDefinition(t, "test.canceled_step",
-		mustTransform(t, "work", func(_ context.Context, input numberInput) (numberInput, error) {
+		mustTransform(t, "work", func(input numberInput) (numberInput, error) {
 			called = true
 			return input, nil
 		}),

@@ -48,9 +48,15 @@
 // Four rules keep the seams consistent across Scope:
 //
 //   - A context parameter means the call may block or run unbounded: I/O inside
-//     Effects, and unbounded search such as planning.Planner and
-//     run.Execution.Step. Bounded Step callbacks take no context, which also
-//     keeps ambient context values out of replayed logic.
+//     Effects, unbounded search such as planning.Planner, and the kernel's
+//     entry points into strategy code, run.Execution.Step and
+//     run.Definition.Restore. A callback whose cost its arguments bound, such
+//     as a predicate, reducer, validator, policy or projection, takes none.
+//     Replayed Steps already see no context values; leaving the context out
+//     also keeps cancellation timing, deadlines and I/O out of logic that must
+//     reproduce its committed result. Strategies honor cancellation between
+//     their own units of work, and the Runtime discards a Step whose process
+//     terminated.
 //   - The Step side never holds an executable, only frozen values taken from
 //     one, such as a tool.Contract or the function InputValidator returns.
 //   - Values are decorated before they reach Scope, in one shape: func(next X)

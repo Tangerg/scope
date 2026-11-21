@@ -16,10 +16,12 @@
 // its original Failure. A window drains before the workflow adopts its results,
 // propagates a failure, or starts another window.
 //
-// Transform, Switch, Fork, and Loop callbacks run inside discardable Steps.
-// They must be deterministic, bounded, side-effect-free, and cancellation-aware.
-// Context carries cancellation, never hidden domain input. External I/O belongs
-// in a child Program's dispatcher Effects.
+// Transform, Switch, Fork, and Loop callbacks run inside discardable, replayed
+// Steps. They must be deterministic, bounded and side-effect-free, and they take
+// no context: the workflow honors cancellation between stages and between
+// fan-out members, and the Runtime discards a Step whose process terminated.
+// External I/O, and computation long enough to need cancellation, belongs in a
+// child Program's dispatcher Effects.
 //
 // Persisted execution state contains only progress not already owned by the
 // immutable graph. Restore validates it against the exact compiled graph.

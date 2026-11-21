@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -14,7 +13,7 @@ import (
 
 func fanoutRestoreFixture(t *testing.T, kind StageKind) (Stage, run.Payload) {
 	t.Helper()
-	leaf := mustProgram(t, mustDefinition(t, "test.restore.integer", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) {
+	leaf := mustProgram(t, mustDefinition(t, "test.restore.integer", mustTransform(t, "identity", func(value int) (int, error) {
 		return value, nil
 	})), "integer")
 	binding := run.ChildBinding{Program: leaf}
@@ -28,7 +27,7 @@ func fanoutRestoreFixture(t *testing.T, kind StageKind) (Stage, run.Payload) {
 	stage, err := Fork(ForkConfig[int, int, int]{
 		ID: "fork", WindowSize: 2,
 		Branches: []ForkBranch{{ID: "first", Child: binding}, {ID: "second", Child: binding}, {ID: "third", Child: binding}},
-		Reduce:   func(_ context.Context, input int, _ []int) (int, error) { return input, nil },
+		Reduce:   func(input int, _ []int) (int, error) { return input, nil },
 	})
 	if err != nil {
 		t.Fatal(err)

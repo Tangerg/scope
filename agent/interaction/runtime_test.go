@@ -29,7 +29,7 @@ type scriptTool struct {
 	direct     bool
 	idempotent bool
 	classify   func(tool.Invocation) (string, bool)
-	advertise  func(context.Context, tool.Invocation, tool.Result) ([]string, error)
+	advertise  func(tool.Invocation, tool.Result) ([]string, error)
 }
 
 func (s scriptTool) Definition() tool.Definition {
@@ -47,11 +47,11 @@ func (s scriptTool) Call(ctx context.Context, input tool.Invocation) (tool.Resul
 func (s scriptTool) ReturnsDirectResult() bool                               { return s.direct }
 func (s scriptTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) { return s.classify }
 
-func (s scriptTool) AdvertiseDeferred(ctx context.Context, input tool.Invocation, result tool.Result) ([]string, error) {
+func (s scriptTool) AdvertiseDeferred(input tool.Invocation, result tool.Result) ([]string, error) {
 	if s.advertise == nil {
 		return nil, nil
 	}
-	return s.advertise(ctx, input, result)
+	return s.advertise(input, result)
 }
 
 // loggedIntents returns the Effects the log's Steps declared, in log order.
@@ -477,7 +477,7 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 	type response struct {
 		Value int `json:"value"`
 	}
-	stage, err := workflow.Transform("double", func(_ context.Context, input request) (response, error) { return response{Value: input.Value * 2}, nil })
+	stage, err := workflow.Transform("double", func(input request) (response, error) { return response{Value: input.Value * 2}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

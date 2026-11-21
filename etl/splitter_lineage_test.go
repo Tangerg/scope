@@ -36,7 +36,7 @@ func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
 	if err != nil || len(docs) != 2 {
 		t.Fatalf("first split: %v %v", docs, err)
 	}
-	if docs, err = assigner.Assign(t.Context(), docs); err != nil {
+	if docs, err = assigner.Assign(docs); err != nil {
 		t.Fatal(err)
 	}
 	twice, err := splitter.Split(t.Context(), docs)

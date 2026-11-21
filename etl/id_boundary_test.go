@@ -1,7 +1,6 @@
 package etl_test
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -10,22 +9,22 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-type boundaryIDGenerator func(context.Context, *document.Document) (string, error)
+type boundaryIDGenerator func(*document.Document) (string, error)
 
-func (b boundaryIDGenerator) Generate(ctx context.Context, doc *document.Document) (string, error) {
-	return b(ctx, doc)
+func (b boundaryIDGenerator) Generate(doc *document.Document) (string, error) {
+	return b(doc)
 }
 
 func TestGeneratedIdentityUsesCanonicalDocumentValidation(t *testing.T) {
 	for _, id := range []string{"\xff", "\xfe", "文档\x00/identity"} {
 		t.Run(id, func(t *testing.T) {
-			generator := boundaryIDGenerator(func(context.Context, *document.Document) (string, error) { return id, nil })
+			generator := boundaryIDGenerator(func(*document.Document) (string, error) { return id, nil })
 			assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: generator})
 			if err != nil {
 				t.Fatal(err)
 			}
 			input := []*document.Document{{Text: "source"}}
-			output, operationErr := assigner.Assign(t.Context(), input)
+			output, operationErr := assigner.Assign(input)
 			if id == "文档\x00/identity" {
 				if operationErr != nil || len(output) != 1 || output[0].ID != id {
 					t.Fatalf("valid Core identity rejected: output=%v error=%v", output, operationErr)
@@ -42,7 +41,7 @@ func TestGeneratedIdentityUsesCanonicalDocumentValidation(t *testing.T) {
 
 func TestGeneratedIdentityFailureDoesNotPublishPrefixes(t *testing.T) {
 	calls := 0
-	generator := boundaryIDGenerator(func(context.Context, *document.Document) (string, error) {
+	generator := boundaryIDGenerator(func(*document.Document) (string, error) {
 		calls++
 		if calls == 2 {
 			return "\xff", nil
@@ -58,7 +57,7 @@ func TestGeneratedIdentityFailureDoesNotPublishPrefixes(t *testing.T) {
 	for index, doc := range input {
 		original[index] = doc.Clone()
 	}
-	output, err := assigner.Assign(t.Context(), input)
+	output, err := assigner.Assign(input)
 	if !errors.Is(err, document.ErrInvalidDocument) || output != nil || calls != 2 {
 		t.Fatalf("failed identity batch published: calls=%d output=%v error=%v", calls, output, err)
 	}
@@ -67,25 +66,8 @@ func TestGeneratedIdentityFailureDoesNotPublishPrefixes(t *testing.T) {
 	}
 }
 
-func TestGeneratedIdentityRejectsCancellationBeforePublication(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	generator := boundaryIDGenerator(func(context.Context, *document.Document) (string, error) {
-		cancel()
-		return "generated", nil
-	})
-	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: generator})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := assigner.Assign(ctx, []*document.Document{{Text: "source"}})
-	if !errors.Is(err, context.Canceled) || output != nil {
-		t.Fatalf("canceled identity published: output=%v error=%v", output, err)
-	}
-}
-
 func TestIDAssignerGrantsOnlyIdentityToGenerator(t *testing.T) {
-	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: boundaryIDGenerator(func(_ context.Context, input *document.Document) (string, error) {
+	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: boundaryIDGenerator(func(input *document.Document) (string, error) {
 		input.Text = "foreign"
 		return "generated", nil
 	})})
@@ -96,7 +78,7 @@ func TestIDAssignerGrantsOnlyIdentityToGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := assigner.Assign(t.Context(), []*document.Document{source})
+	got, err := assigner.Assign([]*document.Document{source})
 	if err != nil {
 		t.Fatal(err)
 	}

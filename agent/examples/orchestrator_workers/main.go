@@ -204,15 +204,15 @@ func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
 	return []workflow.Stage{renderGoal, decompose, parsePlan, execute, renderResults, synthesize, parseReport}, nil
 }
 
-func executeWorkerTask(_ context.Context, task workerTask) (workerResult, error) {
+func executeWorkerTask(task workerTask) (workerResult, error) {
 	if task.ID == "" || task.Instruction == "" {
 		return workerResult{}, errors.New("worker task is incomplete")
 	}
 	return workerResult{Finding: task.Instruction + ": complete"}, nil
 }
 
-func parseWorkPlan(ctx context.Context, output interaction.Output) ([]workerTask, error) {
-	plan, err := decodeModelJSON[workPlan](ctx, output)
+func parseWorkPlan(output interaction.Output) ([]workerTask, error) {
+	plan, err := decodeModelJSON[workPlan](output)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func transformProgram[I, O any](
 	})
 }
 
-func interactionInput[T any](_ context.Context, value T) (interaction.Input, error) {
+func interactionInput[T any](value T) (interaction.Input, error) {
 	data, err := jsonv2.Marshal(value)
 	if err != nil {
 		return interaction.Input{}, err
@@ -255,7 +255,7 @@ func interactionInput[T any](_ context.Context, value T) (interaction.Input, err
 	}, nil
 }
 
-func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, error) {
+func decodeModelJSON[T any](output interaction.Output) (T, error) {
 	var zero T
 	if output.ModelResponse == nil {
 		return zero, errors.New("interaction did not return a model response")

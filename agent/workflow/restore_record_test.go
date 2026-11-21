@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -13,7 +12,7 @@ import (
 
 func singleChildRecord(t testing.TB) (*definition, executionState) {
 	t.Helper()
-	leaf := mustProgram(t, mustDefinition(t, "test.leaf", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })), "leaf")
+	leaf := mustProgram(t, mustDefinition(t, "test.leaf", mustTransform(t, "identity", func(value int) (int, error) { return value, nil })), "leaf")
 	stage, err := Call(CallConfig{ID: "call", Child: run.ChildBinding{Program: leaf}})
 	if err != nil {
 		t.Fatal(err)

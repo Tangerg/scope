@@ -119,7 +119,7 @@ func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall
 	if err != nil || outcome.Completion == nil || outcome.Completion.Disposition != ResultSucceeded {
 		return outcome, err
 	}
-	names, err := t.advertisedNames(ctx, prepared.call.Name, prepared.invocation, result)
+	names, err := t.advertisedNames(prepared.call.Name, prepared.invocation, result)
 	if err != nil {
 		outcome.AdvertisementFailure = run.NormalizeDiagnostic(err.Error())
 		return outcome, nil
@@ -132,7 +132,7 @@ func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall
 // Because it runs only after a successful result, a rejected, failed, or
 // input-pending call can never commit a declaration. The returned names must be
 // bound deferred Tools; a declaration of anything else is a Tool defect.
-func (t *toolDispatcher) advertisedNames(ctx context.Context, name string, invocation tool.Invocation, output tool.Result) (names []string, err error) {
+func (t *toolDispatcher) advertisedNames(name string, invocation tool.Invocation, output tool.Result) (names []string, err error) {
 	advertiser, found := t.advertisers[name]
 	if !found {
 		return nil, nil
@@ -143,7 +143,7 @@ func (t *toolDispatcher) advertisedNames(ctx context.Context, name string, invoc
 			err = &run.CallbackPanicError{Operation: "AdvertisingTool.AdvertiseDeferred", Value: recovered}
 		}
 	}()
-	declared, err := advertiser.AdvertiseDeferred(ctx, invocation, output)
+	declared, err := advertiser.AdvertiseDeferred(invocation, output)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidToolAdvertisement, err)
 	}

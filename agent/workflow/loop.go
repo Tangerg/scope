@@ -1,17 +1,16 @@
 package workflow
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-// LoopPredicate is a bounded, deterministic, side-effect-free completion test
-// evaluated after each successful body child Process. It must honor ctx
-// cancellation; context is not a source of domain input.
-type LoopPredicate[T any] func(ctx context.Context, value T) (bool, error)
+// LoopPredicate is the completion test evaluated after each successful body
+// child Process. Like TransformFunc it runs inside the replayed Step, so it
+// must be bounded, deterministic and side-effect-free, and it takes no context.
+type LoopPredicate[T any] func(value T) (bool, error)
 
 // LoopResult is the exact semantic output of a Loop Stage. Satisfied is false
 // when MaxIterations was exhausted; that outcome is still a valid completion.
@@ -39,7 +38,7 @@ type LoopConfig[T any] struct {
 type loopStage struct {
 	binding       run.ChildBinding
 	maxIterations run.Quota
-	predicate     func(context.Context, run.Payload) (bool, error)
+	predicate     func(run.Payload) (bool, error)
 	result        func(run.Payload, uint64, bool) (run.Payload, error)
 }
 
@@ -74,13 +73,13 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 	}, nil
 }
 
-func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(context.Context, run.Payload) (bool, error) {
-	return func(ctx context.Context, output run.Payload) (bool, error) {
+func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(run.Payload) (bool, error) {
+	return func(output run.Payload) (bool, error) {
 		value, err := output.Decode[T]()
 		if err != nil {
 			return false, err
 		}
-		satisfied, err := predicate(ctx, value)
+		satisfied, err := predicate(value)
 		if err != nil {
 			return false, fmt.Errorf("Loop %q predicate: %w", stageID, err)
 		}

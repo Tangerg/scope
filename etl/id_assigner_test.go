@@ -20,7 +20,7 @@ func TestIDAssigner_FillsEmptyOnly(t *testing.T) {
 	withoutID, _ := document.NewDocument("b", nil)
 	_ = withoutID.Metadata.Set("source", "original")
 
-	out, err := assigner.Assign(t.Context(), []*document.Document{withID, withoutID})
+	out, err := assigner.Assign([]*document.Document{withID, withoutID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestIDAssigner_Overwrite(t *testing.T) {
 
 	doc, _ := document.NewDocument("a", nil)
 	doc.ID = "old"
-	out, _ := assigner.Assign(t.Context(), []*document.Document{doc})
+	out, _ := assigner.Assign([]*document.Document{doc})
 	if out[0].ID == "old" || out[0].ID == "" {
 		t.Fatalf("Overwrite must replace id, got %q", out[0].ID)
 	}

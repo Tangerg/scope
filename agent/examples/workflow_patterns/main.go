@@ -298,7 +298,7 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 	section, err := workflow.Fork(workflow.ForkConfig[routedState, sectionContent, findingBundle]{
 		ID: "section", Branches: sections, WindowSize: sectionWindowSize,
 		// Fork outputs arrive in branch declaration order.
-		Reduce: func(_ context.Context, state routedState, contents []sectionContent) (findingBundle, error) {
+		Reduce: func(state routedState, contents []sectionContent) (findingBundle, error) {
 			bundle := findingBundle{Normalized: state.Normalized, Summary: state.Summary, Route: state.Route}
 			for index, content := range contents {
 				bundle.Findings = append(bundle.Findings, finding{Section: sections[index].ID, Content: content.Content})
@@ -326,7 +326,7 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 	return []workflow.Stage{normalize, summarize, route, section, vote}, nil
 }
 
-func normalizePatternRequest(_ context.Context, request patternRequest) (chainState, error) {
+func normalizePatternRequest(request patternRequest) (chainState, error) {
 	text := strings.ToUpper(strings.TrimSpace(request.Text))
 	if text == "" {
 		return chainState{}, errors.New("request text must not be empty")
@@ -334,7 +334,7 @@ func normalizePatternRequest(_ context.Context, request patternRequest) (chainSt
 	return chainState{Normalized: text, Urgent: request.Urgent}, nil
 }
 
-func summarizeChain(_ context.Context, state chainState) (chainState, error) {
+func summarizeChain(state chainState) (chainState, error) {
 	if state.Normalized == "" || state.Summary != "" {
 		return chainState{}, errors.New("summarizer received an invalid chain state")
 	}
@@ -342,7 +342,7 @@ func summarizeChain(_ context.Context, state chainState) (chainState, error) {
 	return state, nil
 }
 
-func selectPatternRoute(_ context.Context, state chainState) (string, error) {
+func selectPatternRoute(state chainState) (string, error) {
 	if state.Normalized == "" || state.Summary == "" {
 		return "", errors.New("router received an incomplete chain state")
 	}
@@ -368,7 +368,7 @@ func routeProgram(compiler *agentrun.Compiler, route string) (agentrun.Program[a
 		struct {
 			Route string `json:"route"`
 		}{Route: route},
-		func(_ context.Context, state chainState) (routedState, error) {
+		func(state chainState) (routedState, error) {
 			if state.Normalized == "" || state.Summary == "" {
 				return routedState{}, errors.New("route worker received an incomplete chain state")
 			}
@@ -387,7 +387,7 @@ func findingProgram(compiler *agentrun.Compiler, section string) (agentrun.Progr
 		struct {
 			Section string `json:"section"`
 		}{Section: section},
-		func(_ context.Context, state routedState) (sectionContent, error) {
+		func(state routedState) (sectionContent, error) {
 			if state.Route == "" || state.Summary == "" {
 				return sectionContent{}, errors.New("section worker received incomplete routed state")
 			}
@@ -404,7 +404,7 @@ func ballotProgram(compiler *agentrun.Compiler, name string, choice ballotChoice
 		"example.workflow_patterns.vote_"+name,
 		"Return one deterministic "+string(choice)+" ballot.",
 		ballot{Choice: choice},
-		func(_ context.Context, bundle findingBundle) (ballot, error) {
+		func(bundle findingBundle) (ballot, error) {
 			for _, finding := range bundle.Findings {
 				if finding.Content == "" {
 					return ballot{}, errors.New("voter requires every parallel section")
@@ -415,7 +415,7 @@ func ballotProgram(compiler *agentrun.Compiler, name string, choice ballotChoice
 	)
 }
 
-func reduceBallots(_ context.Context, bundle findingBundle, ballots []ballot) (patternReport, error) {
+func reduceBallots(bundle findingBundle, ballots []ballot) (patternReport, error) {
 	if len(ballots) == 0 {
 		return patternReport{}, errors.New("parallel vote returned no ballots")
 	}

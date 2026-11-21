@@ -13,7 +13,7 @@ import (
 )
 
 func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
-	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) {
+	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(value delegateValue) (delegateValue, error) {
 		return delegateValue{Value: value.Value * 2}, nil
 	})
 	definition := mustValue(newDefinition(Config{Name: "test.artifacts", Description: "Restore ordered typed evidence.", Delegates: []Delegate{delegate}, CompletionValidator: func(candidate CompletionCandidate) (CompletionDecision, error) {
@@ -50,7 +50,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 }
 
 func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
-	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
+	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
 	tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
 	definition := mustValue(newDefinition(Config{Name: "test.restore", Description: "Reject contradictory continuation facts.", Tools: tools, Delegates: []Delegate{delegate}, MaxModelCalls: run.NewQuota(4)}))
 	call := requested("echo", "call")
@@ -182,7 +182,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 }
 
 func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
-	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
+	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
 	definition := mustValue(newDefinition(Config{Name: "test.restore.children", Description: "Bind restored obligations to their declared calls.", Delegates: []Delegate{delegate}}))
 	firstCall := chat.ToolCall{ID: "first", Name: "worker", Arguments: `{"value":1}`}
 	secondCall := chat.ToolCall{ID: "second", Name: "worker", Arguments: `{"value":2}`}

@@ -17,7 +17,7 @@ func ExampleCapture() {
 		panic(err)
 	}
 	defer runtime.Close(ctx)
-	stage, err := workflow.Transform("double", func(_ context.Context, value int) (int, error) { return 2 * value, nil })
+	stage, err := workflow.Transform("double", func(value int) (int, error) { return 2 * value, nil })
 	if err != nil {
 		panic(err)
 	}

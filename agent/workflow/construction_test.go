@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -11,27 +10,27 @@ import (
 
 func TestWorkflowRejectsUnrepresentableTypedContracts(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "child",
-		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
+		mustTransform(t, "identity", func(input int) (int, error) { return input, nil }),
 	), "typed-child")
 	branches := []ForkBranch{{ID: "branch", Child: run.ChildBinding{Program: child}}}
 	for _, construct := range []func() (Stage, error){
 		func() (Stage, error) {
-			return Transform("bad_input", func(context.Context, chan int) (int, error) { return 0, nil })
+			return Transform("bad_input", func(chan int) (int, error) { return 0, nil })
 		},
 		func() (Stage, error) {
-			return Transform("bad_output", func(context.Context, int) (chan int, error) { return nil, nil })
+			return Transform("bad_output", func(int) (chan int, error) { return nil, nil })
 		},
 		func() (Stage, error) {
-			return Switch(SwitchConfig[chan int]{ID: "switch", Cases: []SwitchCase{{ID: "case", Child: run.ChildBinding{Program: child}}}, Select: func(context.Context, chan int) (string, error) { return "case", nil }})
+			return Switch(SwitchConfig[chan int]{ID: "switch", Cases: []SwitchCase{{ID: "case", Child: run.ChildBinding{Program: child}}}, Select: func(chan int) (string, error) { return "case", nil }})
 		},
 		func() (Stage, error) {
-			return Fork(ForkConfig[chan int, int, int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(context.Context, chan int, []int) (int, error) { return 0, nil }})
+			return Fork(ForkConfig[chan int, int, int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(chan int, []int) (int, error) { return 0, nil }})
 		},
 		func() (Stage, error) {
-			return Fork(ForkConfig[int, chan int, int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(context.Context, int, []chan int) (int, error) { return 0, nil }})
+			return Fork(ForkConfig[int, chan int, int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(int, []chan int) (int, error) { return 0, nil }})
 		},
 		func() (Stage, error) {
-			return Fork(ForkConfig[int, int, chan int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(context.Context, int, []int) (chan int, error) { return nil, nil }})
+			return Fork(ForkConfig[int, int, chan int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(int, []int) (chan int, error) { return nil, nil }})
 		},
 		func() (Stage, error) {
 			return Map(MapConfig[chan int, int]{ID: "map", Child: run.ChildBinding{Program: child}, WindowSize: 1, MaxItems: 1})
@@ -40,7 +39,7 @@ func TestWorkflowRejectsUnrepresentableTypedContracts(t *testing.T) {
 			return Map(MapConfig[int, chan int]{ID: "map", Child: run.ChildBinding{Program: child}, WindowSize: 1, MaxItems: 1})
 		},
 		func() (Stage, error) {
-			return Loop(LoopConfig[chan int]{ID: "loop", Body: run.ChildBinding{Program: child}, Predicate: func(context.Context, chan int) (bool, error) { return false, nil }})
+			return Loop(LoopConfig[chan int]{ID: "loop", Body: run.ChildBinding{Program: child}, Predicate: func(chan int) (bool, error) { return false, nil }})
 		},
 	} {
 		if stage, err := construct(); stage.Valid() || !errors.Is(err, ErrInvalidStage) {
@@ -51,10 +50,10 @@ func TestWorkflowRejectsUnrepresentableTypedContracts(t *testing.T) {
 
 func TestForkRequiresUnambiguousExactBranchBindings(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "child",
-		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
+		mustTransform(t, "identity", func(input int) (int, error) { return input, nil }),
 	), "branch-child")
 	wrong := mustProgram(t, mustDefinition(t, "wrong",
-		mustTransform(t, "identity", func(_ context.Context, input string) (string, error) { return input, nil }),
+		mustTransform(t, "identity", func(input string) (string, error) { return input, nil }),
 	), "wrong-branch")
 	for _, branches := range [][]ForkBranch{
 		{{ID: "missing"}},
@@ -64,7 +63,7 @@ func TestForkRequiresUnambiguousExactBranchBindings(t *testing.T) {
 	} {
 		stage, err := Fork(ForkConfig[int, int, int]{
 			ID: "fork", Branches: branches, WindowSize: 1,
-			Reduce: func(context.Context, int, []int) (int, error) { return 0, nil },
+			Reduce: func(int, []int) (int, error) { return 0, nil },
 		})
 		if stage.Valid() || !errors.Is(err, ErrInvalidStage) {
 			t.Fatalf("ambiguous or incompatible branch contract = %v, %v", stage, err)
@@ -73,7 +72,7 @@ func TestForkRequiresUnambiguousExactBranchBindings(t *testing.T) {
 }
 
 func TestWorkflowRejectsInvalidDefinitions(t *testing.T) {
-	stage := mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })
+	stage := mustTransform(t, "identity", func(value int) (int, error) { return value, nil })
 	if definition, err := newDefinition(Config{Name: "invalid name", Description: "Run a ", Stages: []Stage{stage}}); definition != nil || !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("invalid definition identity = %v, %v", definition, err)
 	}
@@ -81,7 +80,7 @@ func TestWorkflowRejectsInvalidDefinitions(t *testing.T) {
 
 func TestMapCompilesWithOnlyItsChildIdentity(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "child",
-		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
+		mustTransform(t, "identity", func(input int) (int, error) { return input, nil }),
 	), "typed-child")
 	stage, err := Map(MapConfig[int, int]{ID: "items", Child: run.ChildBinding{Program: child}, WindowSize: 1, MaxItems: 4})
 	if err != nil {

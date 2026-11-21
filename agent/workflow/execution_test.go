@@ -14,7 +14,7 @@ import (
 
 func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "test.child",
-		mustTransform(t, "double", func(_ context.Context, input numberInput) (numberOutput, error) {
+		mustTransform(t, "double", func(input numberInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value * 2}, nil
 		}),
 	), "child")
@@ -25,11 +25,11 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := mustProgram(t, mustDefinition(t, "test.parent",
-		mustTransform(t, "increment", func(_ context.Context, input numberInput) (numberInput, error) {
+		mustTransform(t, "increment", func(input numberInput) (numberInput, error) {
 			return numberInput{Value: input.Value + 1}, nil
 		}),
 		call,
-		mustTransform(t, "render", func(_ context.Context, output numberOutput) (textValue, error) {
+		mustTransform(t, "render", func(output numberOutput) (textValue, error) {
 			return textValue{Text: strconv.Itoa(output.Value)}, nil
 		}),
 	), "parent")
@@ -66,7 +66,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 
 func TestCallPropagatesChildFailure(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "test.failing_child",
-		mustTransform(t, "fail", func(_ context.Context, input numberInput) (numberOutput, error) {
+		mustTransform(t, "fail", func(input numberInput) (numberOutput, error) {
 			return numberOutput{}, errors.New("deliberate child failure")
 		}),
 	), "failing-child")
@@ -101,7 +101,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 
 func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "test.call_target",
-		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
+		mustTransform(t, "identity", func(input numberInput) (numberInput, error) { return input, nil }),
 	), "call-target")
 	_, err := Call(CallConfig{ID: "child", Child: run.ChildBinding{Program: child}})
 	if err != nil {
@@ -125,7 +125,7 @@ func mustProgram(t testing.TB, definition run.Definition, identity string) run.P
 // A Workflow's identity must follow its child bindings on its own: the Host
 // configuration below is identical, only the bound child differs.
 func TestDefinitionChildBindingsDistinguishPrograms(t *testing.T) {
-	identity := func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }
+	identity := func(input numberInput) (numberInput, error) { return input, nil }
 	root := func(child run.Program[run.Payload, run.Payload]) run.Program[run.Payload, run.Payload] {
 		stage, err := Call(CallConfig{ID: "child", Child: run.ChildBinding{Program: child}})
 		if err != nil {

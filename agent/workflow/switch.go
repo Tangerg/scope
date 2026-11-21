@@ -1,17 +1,16 @@
 package workflow
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-// SwitchSelector is a bounded, deterministic, side-effect-free case selector.
-// It must honor ctx cancellation and returns the exact SwitchCase ID to invoke
-// for the current value. Context is not a source of domain input.
-type SwitchSelector[I any] func(ctx context.Context, input I) (caseID string, err error)
+// SwitchSelector returns the exact SwitchCase ID to invoke for the current
+// value. Like TransformFunc it runs inside the replayed Step, so it must be
+// bounded, deterministic and side-effect-free, and it takes no context.
+type SwitchSelector[I any] func(input I) (caseID string, err error)
 
 type SwitchCase struct {
 	ID    string
@@ -34,7 +33,7 @@ type switchCase struct {
 }
 
 type switchStage struct {
-	selectCase func(context.Context, run.Payload) (string, error)
+	selectCase func(run.Payload) (string, error)
 	cases      []switchCase
 }
 
@@ -53,12 +52,12 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		return Stage{}, err
 	}
 	selector := config.Select
-	selectCase := func(ctx context.Context, input run.Payload) (string, error) {
+	selectCase := func(input run.Payload) (string, error) {
 		decoded, err := input.Decode[I]()
 		if err != nil {
 			return "", err
 		}
-		selected, err := selector(ctx, decoded)
+		selected, err := selector(decoded)
 		if err != nil {
 			return "", fmt.Errorf("Switch %q selector: %w", config.ID, err)
 		}

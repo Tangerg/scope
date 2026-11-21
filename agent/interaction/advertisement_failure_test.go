@@ -14,14 +14,14 @@ import (
 func TestAdvertisementDefectPreservesCompletedExternalWork(t *testing.T) {
 	for _, row := range []struct {
 		name      string
-		advertise func(context.Context, tool.Invocation, tool.Result) ([]string, error)
+		advertise func(tool.Invocation, tool.Result) ([]string, error)
 	}{
-		{"unbound declaration", func(context.Context, tool.Invocation, tool.Result) ([]string, error) { return []string{"missing"}, nil }},
-		{"visible tool is not deferred", func(context.Context, tool.Invocation, tool.Result) ([]string, error) { return []string{"write"}, nil }},
-		{"callback failure", func(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+		{"unbound declaration", func(tool.Invocation, tool.Result) ([]string, error) { return []string{"missing"}, nil }},
+		{"visible tool is not deferred", func(tool.Invocation, tool.Result) ([]string, error) { return []string{"write"}, nil }},
+		{"callback failure", func(tool.Invocation, tool.Result) ([]string, error) {
 			return nil, errors.New("invalid declaration")
 		}},
-		{"callback panic", func(context.Context, tool.Invocation, tool.Result) ([]string, error) { panic("invalid declaration") }},
+		{"callback panic", func(tool.Invocation, tool.Result) ([]string, error) { panic("invalid declaration") }},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			store := run.NewMemoryStore()

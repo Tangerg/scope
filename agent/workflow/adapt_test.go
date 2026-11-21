@@ -15,7 +15,7 @@ func TestAdaptMapsAChildToAnotherRole(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
 	child, err := Compile[numberInput, numberOutput](compiler, Config{
 		Name: "test.adapt_child", Description: "Double one number.", Revision: "double-v1",
-		Stages: []Stage{mustTransform(t, "double", func(_ context.Context, input numberInput) (numberOutput, error) {
+		Stages: []Stage{mustTransform(t, "double", func(input numberInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value * 2}, nil
 		})},
 	})
@@ -24,10 +24,10 @@ func TestAdaptMapsAChildToAnotherRole(t *testing.T) {
 	}
 	adapted, err := Adapt(compiler, AdaptConfig{
 		Name: "test.adapt", Description: "Render a doubled number.", Revision: "render-v1", Budget: mustBudget(t),
-	}, child, func(_ context.Context, input textValue) (numberInput, error) {
+	}, child, func(input textValue) (numberInput, error) {
 		value, parseErr := strconv.Atoi(input.Text)
 		return numberInput{Value: value}, parseErr
-	}, func(_ context.Context, output numberOutput) (textValue, error) {
+	}, func(output numberOutput) (textValue, error) {
 		return textValue{Text: strconv.Itoa(output.Value)}, nil
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestAdaptMapsAChildToAnotherRole(t *testing.T) {
 
 func TestAdaptRejectsAMissingMapping(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	child := mustProgram(t, mustDefinition(t, "test.identity", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })), "identity")
+	child := mustProgram(t, mustDefinition(t, "test.identity", mustTransform(t, "identity", func(value int) (int, error) { return value, nil })), "identity")
 	config := AdaptConfig{Name: "test.adapt", Description: "Adapt one child.", Revision: "adapt-v1", Budget: mustBudget(t)}
 	if _, err := Adapt[int, run.Payload, run.Payload, int](compiler, config, child, nil, nil); !errors.Is(err, ErrInvalidStage) {
 		t.Fatalf("missing mappings error = %v", err)

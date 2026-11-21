@@ -17,7 +17,7 @@ type loopValue struct {
 
 func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 	body := mustProgram(t, mustDefinition(t, "test.loop_body",
-		mustTransform(t, "increment", func(_ context.Context, input loopValue) (loopValue, error) {
+		mustTransform(t, "increment", func(input loopValue) (loopValue, error) {
 			return loopValue{Value: input.Value + 1}, nil
 		}),
 	), "loop-body")
@@ -38,7 +38,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stage, err := Loop(LoopConfig[loopValue]{
 				ID: "improve", Body: run.ChildBinding{Program: body, Budget: mustBudget(t)}, MaxIterations: test.maximum,
-				Predicate: func(_ context.Context, value loopValue) (bool, error) { return value.Value >= test.threshold, nil },
+				Predicate: func(value loopValue) (bool, error) { return value.Value >= test.threshold, nil },
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -84,13 +84,13 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 
 func TestLoopPropagatesBodyFailure(t *testing.T) {
 	body := mustProgram(t, mustDefinition(t, "test.failing_loop_body",
-		mustTransform(t, "fail", func(context.Context, loopValue) (loopValue, error) {
+		mustTransform(t, "fail", func(loopValue) (loopValue, error) {
 			return loopValue{}, errors.New("deliberate Loop body failure")
 		}),
 	), "failing-loop-body")
 	stage, err := Loop(LoopConfig[loopValue]{
 		ID: "improve", Body: run.ChildBinding{Program: body, Budget: mustBudget(t)}, MaxIterations: run.NewQuota(2),
-		Predicate: func(context.Context, loopValue) (bool, error) { return false, nil },
+		Predicate: func(loopValue) (bool, error) { return false, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,14 +114,14 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 
 func TestLoopRequiresPredicateAndExactBodyContract(t *testing.T) {
 	validBody := mustProgram(t, mustDefinition(t, "test.valid_loop_body",
-		mustTransform(t, "identity", func(_ context.Context, input loopValue) (loopValue, error) { return input, nil }),
+		mustTransform(t, "identity", func(input loopValue) (loopValue, error) { return input, nil }),
 	), "valid-loop-body")
 	wrongBody := mustProgram(t, mustDefinition(t, "test.wrong_loop_body",
-		mustTransform(t, "wrong", func(context.Context, textValue) (textValue, error) { return textValue{}, nil }),
+		mustTransform(t, "wrong", func(textValue) (textValue, error) { return textValue{}, nil }),
 	), "wrong-loop-body")
 	valid := LoopConfig[loopValue]{
 		ID: "improve", Body: run.ChildBinding{Program: validBody, Budget: mustBudget(t)}, MaxIterations: run.NewQuota(2),
-		Predicate: func(context.Context, loopValue) (bool, error) { return true, nil },
+		Predicate: func(loopValue) (bool, error) { return true, nil },
 	}
 	for name, config := range map[string]LoopConfig[loopValue]{
 		"zero finite maximum": {MaxIterations: run.NewQuota(0), ID: valid.ID, Body: valid.Body, Predicate: valid.Predicate},

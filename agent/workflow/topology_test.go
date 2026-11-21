@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"slices"
@@ -33,21 +32,21 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	numberChild := mustTopologyProgram(
 		t,
 		"test.topology.number",
-		func(_ context.Context, input numberInput) (numberOutput, error) {
+		func(input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		},
 	)
 	alternateNumberChild := mustTopologyProgram(
 		t,
 		"test.topology.alternate_number",
-		func(_ context.Context, input numberInput) (numberOutput, error) {
+		func(input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		},
 	)
 	identityChild := mustTopologyProgram(
 		t,
 		"test.topology.identity",
-		func(_ context.Context, input numberInput) (numberInput, error) { return input, nil },
+		func(input numberInput) (numberInput, error) { return input, nil },
 	)
 	budget := mustBudget(t)
 	capability, err := run.ParseCapability("test.topology.execute")
@@ -59,7 +58,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	transform := mustTransform(t, "transform", func(_ context.Context, input numberInput) (numberOutput, error) {
+	transform := mustTransform(t, "transform", func(input numberInput) (numberOutput, error) {
 		return numberOutput(input), nil
 	})
 	call, err := Call(CallConfig{
@@ -70,7 +69,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	}
 	switcher, err := Switch(SwitchConfig[numberInput]{
 		ID:     "switch",
-		Select: func(context.Context, numberInput) (string, error) { return "primary", nil },
+		Select: func(numberInput) (string, error) { return "primary", nil },
 		Cases: []SwitchCase{
 			{ID: "primary", Child: run.ChildBinding{Program: numberChild, Budget: budget, Capabilities: capabilities}},
 			{ID: "fallback", Child: run.ChildBinding{Program: alternateNumberChild, Budget: budget, Capabilities: capabilities}},
@@ -86,7 +85,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 			{ID: "right", Child: run.ChildBinding{Program: alternateNumberChild, Budget: budget, Capabilities: capabilities}},
 		},
 		WindowSize: 1,
-		Reduce: func(_ context.Context, _ numberInput, outputs []numberOutput) (numberOutput, error) {
+		Reduce: func(_ numberInput, outputs []numberOutput) (numberOutput, error) {
 			return outputs[0], nil
 		},
 	})
@@ -102,7 +101,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	}
 	loop, err := Loop(LoopConfig[numberInput]{
 		ID: "loop", Body: run.ChildBinding{Program: identityChild, Budget: budget, Capabilities: capabilities}, MaxIterations: run.NewQuota(3),
-		Predicate: func(context.Context, numberInput) (bool, error) { return true, nil },
+		Predicate: func(numberInput) (bool, error) { return true, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -207,11 +206,11 @@ func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
 	child := mustTopologyProgram(
 		t,
 		"test.topology.ownership_child",
-		func(_ context.Context, input numberInput) (numberOutput, error) { return numberOutput(input), nil },
+		func(input numberInput) (numberOutput, error) { return numberOutput(input), nil },
 	)
 	stage, err := Switch(SwitchConfig[numberInput]{
 		ID:     "route",
-		Select: func(context.Context, numberInput) (string, error) { return "first", nil },
+		Select: func(numberInput) (string, error) { return "first", nil },
 		Cases: []SwitchCase{
 			{ID: "first", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}},
 			{ID: "second", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}},

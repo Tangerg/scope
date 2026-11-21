@@ -165,8 +165,8 @@ func TestDelegateIntentProjectionRequiresTheExactDeclaredBinding(t *testing.T) {
 		}
 		return nil
 	})})
-	delegate := compiledDelegate(t, runtime.Compiler(), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
-	foreign := compiledDelegate(t, runtime.Compiler(), "foreign", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
+	delegate := compiledDelegate(t, runtime.Compiler(), "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
+	foreign := compiledDelegate(t, runtime.Compiler(), "foreign", func(value delegateValue) (delegateValue, error) { return value, nil })
 	program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(chat.ToolCall{ID: "delegation", Name: "worker", Arguments: `{"value":3}`}), nil
 	}))})
@@ -209,7 +209,7 @@ func TestDelegateIntentProjectionRequiresTheExactDeclaredBinding(t *testing.T) {
 func TestDelegateResultProjectionRequiresTheDeclaredOutputContract(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store, CheckpointInterval: 1000})
-	delegate := compiledDelegate(t, runtime.Compiler(), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
+	delegate := compiledDelegate(t, runtime.Compiler(), "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
 	models := 0
 	program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		models++

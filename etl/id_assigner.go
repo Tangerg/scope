@@ -1,7 +1,6 @@
 package etl
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,16 +36,11 @@ func NewIDAssigner(config IDAssignerConfig) (*IDAssigner, error) {
 
 // Assign validates and clones every document before assigning IDs. It returns
 // no partial output on failure and never mutates the input slice or documents.
-// Generated identities must satisfy the canonical document contract.
-func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
+// Generated identities must satisfy the canonical document contract. Its work
+// is bounded by the documents, so it takes no context.
+func (i *IDAssigner) Assign(docs []*document.Document) ([]*document.Document, error) {
 	owned := make([]*document.Document, len(docs))
 	for index, doc := range docs {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if doc == nil {
 			return nil, fmt.Errorf("etl: assign ID to document %d: %w", index, ErrNilDocument)
 		}
@@ -57,15 +51,12 @@ func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*
 	}
 
 	for index, doc := range owned {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if i.overwrite {
 			doc.ID = ""
 		} else if doc.ID != "" {
 			continue
 		}
-		if err := i.assignDocument(ctx, doc); err != nil {
+		if err := i.assignDocument(doc); err != nil {
 			return nil, fmt.Errorf("etl: assign ID to document %d: %w", index, err)
 		}
 	}
@@ -73,12 +64,9 @@ func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*
 }
 
 // assignDocument gives an owned, ID-less document its generated identity.
-func (i *IDAssigner) assignDocument(ctx context.Context, doc *document.Document) error {
-	generated, err := i.generator.Generate(ctx, doc.Clone())
+func (i *IDAssigner) assignDocument(doc *document.Document) error {
+	generated, err := i.generator.Generate(doc.Clone())
 	if err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if generated == "" || generated != strings.TrimSpace(generated) {

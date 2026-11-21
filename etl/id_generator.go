@@ -2,7 +2,6 @@ package etl
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/jsontext"
@@ -17,13 +16,13 @@ import (
 )
 
 // IDGenerator produces an identifier for a document. Implementations may
-// derive identity from content or generate an unconditional random identity.
+// derive identity from content or generate an unconditional random identity;
+// either is bounded by the document, so Generate takes no context.
 type IDGenerator interface {
 	// Generate returns a non-blank UTF-8 identifier without surrounding whitespace
 	// for one document without mutating it. Content-addressed implementations must
-	// be deterministic; random implementations must still honor ctx and reject nil
-	// documents.
-	Generate(ctx context.Context, document *document.Document) (string, error)
+	// be deterministic, and every implementation rejects a nil document.
+	Generate(document *document.Document) (string, error)
 }
 
 // SHA256IDGenerator builds a content-addressable identifier from a document's
@@ -42,10 +41,7 @@ func NewSHA256IDGenerator(salt []byte) SHA256IDGenerator {
 // Generate hashes a JSON projection with ordered object members, minimal string
 // escaping, and no whitespace. Number spellings are preserved exactly, avoiding
 // precision loss through float64 normalization.
-func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
+func (s SHA256IDGenerator) Generate(doc *document.Document) (string, error) {
 	if doc == nil {
 		return "", ErrNilDocument
 	}
@@ -77,9 +73,6 @@ func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document)
 		return "", fmt.Errorf("etl: format document identity: %w", err)
 	}
 	_, _ = hasher.Write(identity)
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
@@ -87,10 +80,7 @@ func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document)
 // content identity is not required.
 type UUIDGenerator struct{}
 
-func (UUIDGenerator) Generate(ctx context.Context, doc *document.Document) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
+func (UUIDGenerator) Generate(doc *document.Document) (string, error) {
 	if doc == nil {
 		return "", ErrNilDocument
 	}

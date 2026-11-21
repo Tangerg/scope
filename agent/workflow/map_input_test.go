@@ -82,7 +82,7 @@ func TestMapInputRejectsNonArraysOrExcessiveArraysBeforeDecoding(t *testing.T) {
 
 func TestConsecutiveMapsDeriveWindowsFromTheirOwnStageInput(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
-	transform := mustTransform(t, "increment", func(_ context.Context, value int) (int, error) { return value + 1, nil })
+	transform := mustTransform(t, "increment", func(value int) (int, error) { return value + 1, nil })
 	leaf, err := Compile[int, int](runtime.Compiler(), Config{Name: "test.map_leaf", Description: "Increment one item.", Revision: "increment", Stages: []Stage{transform}})
 	if err != nil {
 		t.Fatal(err)

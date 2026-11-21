@@ -36,7 +36,7 @@ func (wrongShape) JSONSchemaModel() any         { return int(0) }
 
 func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "codec_child",
-		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
+		mustTransform(t, "identity", func(input int) (int, error) { return input, nil }),
 	), "codec-child")
 	branches := []ForkBranch{{ID: "child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}}
 	for _, test := range []struct {
@@ -46,38 +46,38 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 		diagnostic string
 	}{
 		{"transform_input", 3, func() (Stage, error) {
-			return Transform("work", func(context.Context, refusingDecode) (int, error) { return 0, nil })
+			return Transform("work", func(refusingDecode) (int, error) { return 0, nil })
 		}, errDecodeValue.Error()},
 		{"transform_output", 3, func() (Stage, error) {
-			return Transform("work", func(context.Context, int) (refusingEncode, error) { return 0, nil })
+			return Transform("work", func(int) (refusingEncode, error) { return 0, nil })
 		}, errEncodeValue.Error()},
 		{"transform_output_schema", 3, func() (Stage, error) {
-			return Transform("work", func(context.Context, int) (wrongShape, error) { return 0, nil })
+			return Transform("work", func(int) (wrongShape, error) { return 0, nil })
 		}, "output: contract"},
 		{"switch_input", 3, func() (Stage, error) {
 			return Switch(SwitchConfig[refusingDecode]{ID: "work",
 				Cases:  []SwitchCase{{ID: "child", Child: run.ChildBinding{Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t)}}},
-				Select: func(context.Context, refusingDecode) (string, error) { return "child", nil },
+				Select: func(refusingDecode) (string, error) { return "child", nil },
 			})
 		}, errDecodeValue.Error()},
 		{"fork_input", 3, func() (Stage, error) {
 			return Fork(ForkConfig[refusingDecode, int, int]{ID: "work", Branches: codecBranches[refusingDecode, int](t), WindowSize: 1,
-				Reduce: func(context.Context, refusingDecode, []int) (int, error) { return 0, nil },
+				Reduce: func(refusingDecode, []int) (int, error) { return 0, nil },
 			})
 		}, errDecodeValue.Error()},
 		{"fork_branch", 3, func() (Stage, error) {
 			return Fork(ForkConfig[int, refusingDecode, int]{ID: "work", Branches: codecBranches[int, refusingDecode](t), WindowSize: 1,
-				Reduce: func(context.Context, int, []refusingDecode) (int, error) { return 0, nil },
+				Reduce: func(int, []refusingDecode) (int, error) { return 0, nil },
 			})
 		}, errDecodeValue.Error()},
 		{"fork_output", 3, func() (Stage, error) {
 			return Fork(ForkConfig[int, int, refusingEncode]{ID: "work", Branches: branches, WindowSize: 1,
-				Reduce: func(context.Context, int, []int) (refusingEncode, error) { return 0, nil },
+				Reduce: func(int, []int) (refusingEncode, error) { return 0, nil },
 			})
 		}, errEncodeValue.Error()},
 		{"fork_output_schema", 3, func() (Stage, error) {
 			return Fork(ForkConfig[int, int, wrongShape]{ID: "work", Branches: branches, WindowSize: 1,
-				Reduce: func(context.Context, int, []int) (wrongShape, error) { return 0, nil },
+				Reduce: func(int, []int) (wrongShape, error) { return 0, nil },
 			})
 		}, "result: contract"},
 		{"map_input_decode", []int{3}, func() (Stage, error) {
@@ -100,17 +100,17 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 		}, "result: contract"},
 		{"loop_decode", 3, func() (Stage, error) {
 			return Loop(LoopConfig[refusingDecode]{ID: "work", Body: run.ChildBinding{Program: codecProgram[refusingDecode, refusingDecode](t), Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
-				Predicate: func(context.Context, refusingDecode) (bool, error) { return true, nil },
+				Predicate: func(refusingDecode) (bool, error) { return true, nil },
 			})
 		}, errDecodeValue.Error()},
 		{"loop_encode", 3, func() (Stage, error) {
 			return Loop(LoopConfig[refusingEncode]{ID: "work", Body: run.ChildBinding{Program: codecProgram[refusingEncode, refusingEncode](t), Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
-				Predicate: func(context.Context, refusingEncode) (bool, error) { return true, nil },
+				Predicate: func(refusingEncode) (bool, error) { return true, nil },
 			})
 		}, errEncodeValue.Error()},
 		{"loop_output_schema", 3, func() (Stage, error) {
 			return Loop(LoopConfig[wrongShape]{ID: "work", Body: run.ChildBinding{Program: codecProgram[wrongShape, wrongShape](t), Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
-				Predicate: func(context.Context, wrongShape) (bool, error) { return true, nil },
+				Predicate: func(wrongShape) (bool, error) { return true, nil },
 			})
 		}, "integer"},
 	} {

@@ -209,7 +209,7 @@ func TestExecutionFailureProjectsOnlyItsStableClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close(context.Background())
-	stage, err := workflow.Transform("fail", func(context.Context, string) (string, error) { return "", errors.New("secret transform diagnostic") })
+	stage, err := workflow.Transform("fail", func(string) (string, error) { return "", errors.New("secret transform diagnostic") })
 	if err != nil {
 		t.Fatal(err)
 	}

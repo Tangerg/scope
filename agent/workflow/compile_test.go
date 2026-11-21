@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
@@ -10,7 +9,7 @@ import (
 
 func TestCompileFreezesCallbackSettingsAndIncludesTheirIdentity(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	stage := mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })
+	stage := mustTransform(t, "identity", func(value int) (int, error) { return value, nil })
 	settings := map[string]int{"threshold": 2}
 	config := Config{Name: "test.settings", Description: "Bind declared callback settings.", Revision: "policy-v1", Configuration: settings, Stages: []Stage{stage}}
 	first, err := Compile[int, int](compiler, config)
@@ -50,7 +49,7 @@ func TestCompileFreezesCallbackSettingsAndIncludesTheirIdentity(t *testing.T) {
 
 func TestDeclarativeGraphRejectsUnownedCallbackConfiguration(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	child := mustProgram(t, mustDefinition(t, "test.identity", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })), "identity")
+	child := mustProgram(t, mustDefinition(t, "test.identity", mustTransform(t, "identity", func(value int) (int, error) { return value, nil })), "identity")
 	call, err := Call(CallConfig{ID: "child", Child: agentrun.ChildBinding{Program: child}})
 	if err != nil {
 		t.Fatal(err)

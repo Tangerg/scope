@@ -91,7 +91,7 @@ func TestStrategiesDrainCanceledUnknownDelegateSubtrees(t *testing.T) {
 				{Key: contractValue(run.ParseChildKey("winner")), ProgramRef: gate.ProgramRef(), Input: contractValue(run.EncodePayload("finish")), Budget: childBudget},
 				{Key: contractValue(run.ParseChildKey("loser")), ProgramRef: loser.ProgramRef(), Input: contractValue(run.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})), Budget: childBudget},
 			}
-			prepare := contractValue(workflow.Transform("candidates", func(context.Context, struct{}) ([]run.ChildSpec, error) { return candidates, nil }))
+			prepare := contractValue(workflow.Transform("candidates", func(struct{}) ([]run.ChildSpec, error) { return candidates, nil }))
 			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Child: run.ChildBinding{Program: race.Erase(), Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Messages: run.NewQuota(64)}}}))
 			delegate := contractValue(workflow.Compile[struct{}, coordination.FirstSuccessResult](compiler, workflow.Config{Name: "contract.composite", Description: "Publish a drained competition result.", Stages: []workflow.Stage{prepare, call}, Revision: "fixed-candidates"}))
 			delegateBudget := run.Budget{Steps: run.NewQuota(96), Effects: run.NewQuota(80), Messages: run.NewQuota(96)}

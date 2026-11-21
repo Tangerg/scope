@@ -28,7 +28,7 @@ func request(key, worker string, value any) TaskRequest {
 	return TaskRequest{Key: require(run.ParseChildKey(key)), Worker: worker, Input: input(value)}
 }
 
-func transformed[I, O any](t testing.TB, runtime *run.Runtime, name string, transform func(context.Context, I) (O, error)) run.Program[run.Payload, run.Payload] {
+func transformed[I, O any](t testing.TB, runtime *run.Runtime, name string, transform workflow.TransformFunc[I, O]) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	stage := require(workflow.Transform("transform", transform))
 	return require(workflow.Compile[I, O](runtime.Compiler(), workflow.Config{Name: name, Description: "Execute the configured transformation.", Revision: "test", Stages: []workflow.Stage{stage}})).Erase()
@@ -85,8 +85,8 @@ func testTurn(step uint64, messages ...run.Message) run.Turn {
 func TestTeamTransfersWorkingMemoryAndDrainedResults(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	worker := transformed(t, runtime, "test.echo", func(_ context.Context, value string) (string, error) { return "echo:" + value, nil })
-	coordinator := transformed(t, runtime, "test.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+	worker := transformed(t, runtime, "test.echo", func(value string) (string, error) { return "echo:" + value, nil })
+	coordinator := transformed(t, runtime, "test.coordinator", func(turn Turn) (Decision, error) {
 		if turn.Number == 1 {
 			return Decision{Mode: ModeWait, State: input("working"), Tasks: []TaskRequest{request("a", "test.echo", "one"), request("b", "test.echo", "two")}}, nil
 		}
@@ -128,7 +128,7 @@ func TestTeamControlsWaitForCancellationReceiptAndExit(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	deadline := time.Now().Add(time.Hour)
 	worker := require(coordination.Compile[time.Time, time.Time](runtime.Compiler(), coordination.Config{Name: "test.slow", Description: "Wait for later.", Policy: coordination.Deadline{}})).Erase()
-	coordinator := transformed(t, runtime, "test.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+	coordinator := transformed(t, runtime, "test.coordinator", func(turn Turn) (Decision, error) {
 		switch turn.Number {
 		case 1:
 			return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{request("slow", "test.slow", deadline)}}, nil
@@ -157,11 +157,11 @@ func TestTeamControlsWaitForCancellationReceiptAndExit(t *testing.T) {
 func TestTeamValidatesWholeDecisionBeforeStartingAnyTask(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	worker := transformed(t, runtime, "test.worker", func(_ context.Context, value string) (string, error) {
+	worker := transformed(t, runtime, "test.worker", func(value string) (string, error) {
 		t.Error("invalid batch executed a prefix")
 		return value, nil
 	})
-	coordinator := transformed(t, runtime, "test.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+	coordinator := transformed(t, runtime, "test.coordinator", func(turn Turn) (Decision, error) {
 		return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("duplicate", "test.worker", "a"), request("duplicate", "test.worker", "b")}}, nil
 	})
 	handle := startTeam(t, runtime, compileTeam(t, runtime, coordinator, worker))
@@ -183,8 +183,8 @@ func TestTeamValidatesWholeDecisionBeforeStartingAnyTask(t *testing.T) {
 
 func TestTaskExitDuringCoordinatorTurnRemainsVisibleToNextTurn(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
-	worker := transformed(t, runtime, "test.worker", func(_ context.Context, value string) (string, error) { return value, nil })
-	coordinator := transformed(t, runtime, "test.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+	worker := transformed(t, runtime, "test.worker", func(value string) (string, error) { return value, nil })
+	coordinator := transformed(t, runtime, "test.coordinator", func(turn Turn) (Decision, error) {
 		return Decision{State: turn.State, Output: input("unused")}, nil
 	})
 	program := compileTeam(t, runtime, coordinator, worker)
@@ -212,10 +212,10 @@ func TestTaskExitDuringCoordinatorTurnRemainsVisibleToNextTurn(t *testing.T) {
 
 func TestTeamRejectsContradictoryRestoredOwnership(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
-	coordinator := transformed(t, runtime, "test.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+	coordinator := transformed(t, runtime, "test.coordinator", func(turn Turn) (Decision, error) {
 		return Decision{State: turn.State, Output: input("done")}, nil
 	})
-	worker := transformed(t, runtime, "test.worker", func(_ context.Context, value string) (string, error) { return value, nil })
+	worker := transformed(t, runtime, "test.worker", func(value string) (string, error) { return value, nil })
 	compiled := compileTeam(t, runtime, coordinator, worker).Definition()
 	for _, raw := range []string{`{"completed":true,"working_state":"duplicate"}`, `{"working_state":"initial","turn_number":0,"coordinator":{}}`, `{"working_state":"initial","turn_number":0,"unknown":true}`} {
 		state := require(run.NewExecutionState(stateKind, require(run.ParsePayload([]byte(raw)))))

@@ -47,7 +47,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	}
 	stage, err := Fork(ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func(_ context.Context, _ forkInput, values []branchOutput) (forkOutput, error) {
+		Reduce: func(_ forkInput, values []branchOutput) (forkOutput, error) {
 			result := forkOutput{Branches: make([]string, len(values))}
 			for index, value := range values {
 				result.Branches[index] = value.Branch
@@ -113,7 +113,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 	for _, id := range []string{"first", "second"} {
 		branchID := id
 		child := mustProgram(t, mustDefinition(t, "test.fork_failure_"+id,
-			mustTransform(t, "fail", func(context.Context, forkInput) (branchOutput, error) {
+			mustTransform(t, "fail", func(forkInput) (branchOutput, error) {
 				return branchOutput{}, fmt.Errorf("%s failed", branchID)
 			}),
 		), "fork-failure-"+id)
@@ -121,7 +121,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 	}
 	stage, err := Fork(ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
+		Reduce: func(forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 			branches := make([]ForkBranch, 0, 2)
 			for _, id := range []string{"refused", "available"} {
 				child := mustProgram(t, mustDefinition(t, "test.admission_"+id,
-					mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
+					mustTransform(t, "identity", func(input forkInput) (numberOutput, error) {
 						return numberOutput(input), nil
 					}),
 				), "admission-"+id)
@@ -164,7 +164,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 			}
 			stage, err := Fork(ForkConfig[forkInput, numberOutput, numberOutput]{
 				ID: "workers", Branches: branches, WindowSize: 2,
-				Reduce: func(context.Context, forkInput, []numberOutput) (numberOutput, error) {
+				Reduce: func(forkInput, []numberOutput) (numberOutput, error) {
 					t.Error("reducer ran after a failed branch admission")
 					return numberOutput{}, nil
 				},
@@ -229,20 +229,20 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 
 func TestForkRequiresExplicitValidWindowAndContracts(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "test.fork_valid",
-		mustTransform(t, "valid", func(_ context.Context, input forkInput) (branchOutput, error) {
+		mustTransform(t, "valid", func(input forkInput) (branchOutput, error) {
 			return branchOutput{Branch: "valid", Value: input.Value}, nil
 		}),
 	), "fork-valid")
 	validBranch := ForkBranch{ID: "valid", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}
 	for name, config := range map[string]ForkConfig[forkInput, branchOutput, forkOutput]{
-		"empty": {ID: "workers", WindowSize: 1, Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
+		"empty": {ID: "workers", WindowSize: 1, Reduce: func(forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
 		"zero window size": {
 			ID: "workers", Branches: []ForkBranch{validBranch},
-			Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
+			Reduce: func(forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 		},
 		"oversized window": {
 			ID: "workers", Branches: []ForkBranch{validBranch}, WindowSize: 2,
-			Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
+			Reduce: func(forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 		},
 		"nil reducer": {ID: "workers", Branches: []ForkBranch{validBranch}, WindowSize: 1},
 	} {

@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -12,7 +11,7 @@ import (
 
 func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	increment := mustTransform(t, "increment", func(_ context.Context, value int) (int, error) { return value + 1, nil })
+	increment := mustTransform(t, "increment", func(value int) (int, error) { return value + 1, nil })
 	leaf, err := Compile[int, int](compiler, Config{Name: "test.increment", Description: "Increment once.", Revision: "increment", Stages: []Stage{increment}})
 	if err != nil {
 		t.Fatal(err)
@@ -21,11 +20,11 @@ func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	choose, err := Switch(SwitchConfig[int]{ID: "choose", Cases: []SwitchCase{{ID: "increment", Child: run.ChildBinding{Program: leaf.Erase()}}}, Select: func(context.Context, int) (string, error) { return "increment", nil }})
+	choose, err := Switch(SwitchConfig[int]{ID: "choose", Cases: []SwitchCase{{ID: "increment", Child: run.ChildBinding{Program: leaf.Erase()}}}, Select: func(int) (string, error) { return "increment", nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fork, err := Fork(ForkConfig[int, int, int]{ID: "fork", Branches: []ForkBranch{{ID: "a", Child: run.ChildBinding{Program: leaf.Erase()}}, {ID: "b", Child: run.ChildBinding{Program: leaf.Erase()}}, {ID: "c", Child: run.ChildBinding{Program: leaf.Erase()}}}, WindowSize: 2, Reduce: func(_ context.Context, _ int, outputs []int) (int, error) {
+	fork, err := Fork(ForkConfig[int, int, int]{ID: "fork", Branches: []ForkBranch{{ID: "a", Child: run.ChildBinding{Program: leaf.Erase()}}, {ID: "b", Child: run.ChildBinding{Program: leaf.Erase()}}, {ID: "c", Child: run.ChildBinding{Program: leaf.Erase()}}}, WindowSize: 2, Reduce: func(_ int, outputs []int) (int, error) {
 		sum := 0
 		for _, value := range outputs {
 			sum += value
@@ -35,7 +34,7 @@ func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop, err := Loop(LoopConfig[int]{ID: "loop", Body: run.ChildBinding{Program: leaf.Erase()}, MaxIterations: run.NewQuota(3), Predicate: func(_ context.Context, value int) (bool, error) { return value >= 10, nil }})
+	loop, err := Loop(LoopConfig[int]{ID: "loop", Body: run.ChildBinding{Program: leaf.Erase()}, MaxIterations: run.NewQuota(3), Predicate: func(value int) (bool, error) { return value >= 10, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +98,7 @@ func mustPayload(t testing.TB, value any) run.Payload {
 }
 
 func TestRestoreRejectsUnownedAndContradictoryWorkflowProgress(t *testing.T) {
-	leaf := mustProgram(t, mustDefinition(t, "test.leaf", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })), "leaf")
+	leaf := mustProgram(t, mustDefinition(t, "test.leaf", mustTransform(t, "identity", func(value int) (int, error) { return value, nil })), "leaf")
 	stage, err := Map(MapConfig[int, int]{ID: "map", Child: run.ChildBinding{Program: leaf}, MaxItems: 4, WindowSize: 2})
 	if err != nil {
 		t.Fatal(err)

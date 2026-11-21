@@ -22,7 +22,7 @@ func ExampleRegister() {
 	type order struct {
 		ID string `json:"id"`
 	}
-	stage := must(workflow.Transform("lookup", func(_ context.Context, in order) (string, error) { return in.ID, nil }))
+	stage := must(workflow.Transform("lookup", func(in order) (string, error) { return in.ID, nil }))
 	program := must(workflow.Compile[order, string](rt.Compiler(), workflow.Config{Name: "example.order", Description: "Return an order ID.", Stages: []workflow.Stage{stage}, Revision: "lookup.v1"}))
 	server := sdk.NewServer(&sdk.Implementation{Name: "orders", Version: "1"}, nil)
 	// The transport's authenticated middleware supplies the grant on every

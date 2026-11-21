@@ -267,7 +267,7 @@ func newOptimizerProgram(compiler *agentrun.Compiler) (agentrun.Program[agentrun
 		"example.evaluator_optimizer.optimizer",
 		"Produce one revised candidate from the objective and latest evaluator feedback.",
 		struct{}{},
-		func(_ context.Context, state optimizationState) (optimizationState, error) {
+		func(state optimizationState) (optimizationState, error) {
 			if err := state.validateSettled(); err != nil {
 				return optimizationState{}, err
 			}
@@ -291,7 +291,7 @@ func newEvaluatorProgram(compiler *agentrun.Compiler, scores []float64) (agentru
 		struct {
 			Scores []float64 `json:"scores"`
 		}{Scores: scores},
-		func(_ context.Context, state optimizationState) (optimizationState, error) {
+		func(state optimizationState) (optimizationState, error) {
 			if validatePendingStateErr := state.validatePending(); validatePendingStateErr != nil {
 				return optimizationState{}, validatePendingStateErr
 			}
@@ -340,7 +340,7 @@ func newIterationProgram(
 	})
 }
 
-func initializeOptimization(_ context.Context, request optimizationRequest) (optimizationState, error) {
+func initializeOptimization(request optimizationRequest) (optimizationState, error) {
 	objective := strings.TrimSpace(request.Objective)
 	if objective == "" || objective != request.Objective {
 		return optimizationState{}, errors.New("objective must be non-empty and trimmed")
@@ -377,7 +377,7 @@ func newOptimizationRoot(
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: agentrun.ChildBinding{Program: iteration, Budget: iterationBudget},
 		MaxIterations: agentrun.NewQuota(uint64(maxIterations)),
-		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
+		Predicate: func(state optimizationState) (bool, error) {
 			if validateSettledStateErr := state.validateSettled(); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
 			}
@@ -387,9 +387,7 @@ func newOptimizationRoot(
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	finalize, err := workflow.Transform("finalize", func(_ context.Context,
-		result workflow.LoopResult[optimizationState],
-	) (optimizationReport, error) {
+	finalize, err := workflow.Transform("finalize", func(result workflow.LoopResult[optimizationState]) (optimizationReport, error) {
 		return finalizeOptimization(result)
 	})
 	if err != nil {

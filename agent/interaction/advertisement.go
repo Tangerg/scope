@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -22,10 +21,11 @@ import (
 // authority. Names must be exact deferred Tool names; the Interaction normalizes
 // order and duplicates and rejects any name that is not a bound deferred Tool.
 // AdvertiseDeferred is a bounded, deterministic, side-effect-free projection of
-// invocation and result. External work belongs in Tool.Call. A declaration
-// defect fails the Interaction without retracting its already completed call.
+// invocation and result, so it takes no context. External work belongs in
+// Tool.Call. A declaration defect fails the Interaction without retracting its
+// already completed call.
 type AdvertisingTool interface {
-	AdvertiseDeferred(ctx context.Context, invocation tool.Invocation, result tool.Result) ([]string, error)
+	AdvertiseDeferred(invocation tool.Invocation, result tool.Result) ([]string, error)
 }
 
 func validateAdvertisedToolNames(names []string) error {

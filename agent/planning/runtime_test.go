@@ -162,7 +162,7 @@ func TestPlanningChildActionUsesExplicitExitAndReobserves(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
 	done, goal, action := domain()
 	world := &observedWorld{}
-	childStage := require(workflow.Transform("finish", func(_ context.Context, value string) (string, error) { return value, nil }))
+	childStage := require(workflow.Transform("finish", func(value string) (string, error) { return value, nil }))
 	child := require(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.child", Description: "Perform the child action.", Revision: "identity", Stages: []workflow.Stage{childStage}}))
 	binding := require(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Child: run.ChildBinding{Program: child.Erase()}}))
 	sensor := planning.SensorFunc(func(ctx context.Context, request planning.SenseRequest) (planning.WorldState, error) {

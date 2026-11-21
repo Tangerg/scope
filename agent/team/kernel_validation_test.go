@@ -15,10 +15,10 @@ import (
 func validationPrograms(t testing.TB) (*run.Runtime, Config) {
 	t.Helper()
 	runtime := conformancetest.Runtime(t, run.Config{})
-	coordinator := transformed(t, runtime, "test.validation.coordinator", func(_ context.Context, turn Turn) (Decision, error) {
+	coordinator := transformed(t, runtime, "test.validation.coordinator", func(turn Turn) (Decision, error) {
 		return Decision{State: turn.State, Output: input("done")}, nil
 	})
-	worker := transformed(t, runtime, "test.validation.worker", func(_ context.Context, value string) (string, error) { return value, nil })
+	worker := transformed(t, runtime, "test.validation.worker", func(value string) (string, error) { return value, nil })
 	return runtime, Config{
 		Name: "test.validation.team", Description: "Exercise team ownership and bounds.",
 		Coordinator: run.ChildBinding{Program: coordinator}, Workers: []run.ChildBinding{{Program: worker}},

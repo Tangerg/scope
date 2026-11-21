@@ -125,7 +125,7 @@ func TestFirstSuccessCancelsAndDrainsLosingSubtrees(t *testing.T) {
 	store := run.NewMemoryStore()
 	programs := resolver{}
 	runtime := conformancetest.Runtime(t, run.Config{Store: store, ProgramResolver: programs})
-	stage := require(workflow.Transform("identity", func(_ context.Context, input string) (string, error) { return input, nil }))
+	stage := require(workflow.Transform("identity", func(input string) (string, error) { return input, nil }))
 	winner := require(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.winner", Description: "Return immediately.", Revision: "identity", Stages: []workflow.Stage{stage}}))
 	loser := require(Compile[time.Time, time.Time](runtime.Compiler(), Config{Name: "test.loser", Description: "Wait for later.", Policy: Deadline{}}))
 	programs[winner.ProgramRef()] = winner.Erase()

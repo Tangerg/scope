@@ -253,7 +253,7 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	if got := mustValue(mustValue(NewHistoryProjection(different)).DelegateAttributions(log)); len(got) != 0 {
 		t.Fatal("foreign program acquired a delegated child")
 	}
-	stage := mustValue(workflow.Transform("finish", func(context.Context, Input) (Output, error) {
+	stage := mustValue(workflow.Transform("finish", func(Input) (Output, error) {
 		return Output{ModelCalls: 1, ModelResponse: finalResponse("done")}, nil
 	}))
 	otherStrategy := mustValue(workflow.Compile[Input, Output](runtime.Compiler(), workflow.Config{Name: "test.workflow", Description: "Another strategy with identical Go shapes.", Revision: "finish", Stages: []workflow.Stage{stage}}))
@@ -307,7 +307,7 @@ func TestDelegateProjectionDistinguishesAdmissionRejectionAndChildFailure(t *tes
 				}
 				return nil
 			})})
-			delegate := compiledDelegate(t, runtime.Compiler(), "worker", func(context.Context, delegateValue) (delegateValue, error) {
+			delegate := compiledDelegate(t, runtime.Compiler(), "worker", func(delegateValue) (delegateValue, error) {
 				return delegateValue{}, errors.New("delegate execution failed")
 			})
 			calls := 0

@@ -32,7 +32,7 @@ var unusedPreparer = contextPreparerFunc(func(context.Context, ContextInvocation
 func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T) {
 	advertiser := scriptTool{name: "discover", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		return tool.Result{Output: tool.NewTextOutput("discovered")}, nil
-	}, advertise: func(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+	}, advertise: func(tool.Invocation, tool.Result) ([]string, error) {
 		return []string{"hidden"}, nil
 	}}
 	hidden := scriptTool{name: "hidden", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {

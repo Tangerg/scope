@@ -18,7 +18,7 @@ type delegateValue struct {
 	Value int `json:"value"`
 }
 
-func compiledDelegate(t testing.TB, compiler *run.Compiler, name string, transform func(context.Context, delegateValue) (delegateValue, error)) Delegate {
+func compiledDelegate(t testing.TB, compiler *run.Compiler, name string, transform workflow.TransformFunc[delegateValue, delegateValue]) Delegate {
 	t.Helper()
 	stage, err := workflow.Transform("apply", transform)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return finalResponse("unused"), nil })
 	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { return nil })
-	delegate := compiledDelegate(t, compiler, "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
+	delegate := compiledDelegate(t, compiler, "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
 	for _, row := range []struct {
 		name   string
 		change func(*Config)
@@ -168,7 +168,7 @@ func TestToolSetReadsDeclarationsThroughDecorators(t *testing.T) {
 
 func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	delegate := compiledDelegate(t, compiler, "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
+	delegate := compiledDelegate(t, compiler, "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
 	for _, config := range []DelegateConfig{
 		{}, {Name: "worker", Description: "Missing child."},
 		{Name: "Invalid Name", Description: "Invalid model name.", Child: delegate.child},
