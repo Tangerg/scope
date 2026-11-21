@@ -16,12 +16,12 @@
 //	go test -race -count=1 -run '^TestMCPProcessBoundary$' ./mcp/mcpagent
 //
 // Host selection uses the original MCP source and remote identity. ToolSet
-// freezes the canonical tool contract. Its revision identifies the expert
-// artifact and opaque authorization callback; the interaction revision identifies
-// the model query. Compile hashes those declarations without caller-created
-// configuration digests. Session identity is excluded so reconnection can bind
-// the same trusted artifact, while changing its grant refuses recovery before
-// writer activation. Ordinary tool calls remain in the interaction process.
+// freezes the canonical tool contract, and Compile digests it without
+// caller-created configuration digests. Revisions identify only Step-side
+// callbacks; the session, the authorization guard and the model run inside
+// Effects, so reconnecting or revoking the grant keeps the exact binding and
+// recovery never repeats an uncertain call. Ordinary tool calls remain in the
+// interaction process.
 //
 // Cancellation notifies the peer without closing its session. A lost outcome
 // remains Unknown through reconnection and cancellation; the canceled Exit

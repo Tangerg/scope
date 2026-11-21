@@ -85,7 +85,7 @@ func TestStrategiesDrainCanceledUnknownDelegateSubtrees(t *testing.T) {
 				loserCalls.Add(1)
 				return nil, errors.New("remote result lost")
 			}))
-			race := contractValue(coordination.Compile[[]run.ChildSpec, coordination.FirstSuccessResult](compiler, coordination.Config{Name: "contract.competition", Description: "Drain every candidate before publishing a winner.", Policy: coordination.FirstSuccess{MaxCandidates: 2, Revision: "accept-completed", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
+			race := contractValue(coordination.Compile[[]run.ChildSpec, coordination.FirstSuccessResult](compiler, coordination.Config{Name: "contract.competition", Description: "Drain every candidate before publishing a winner.", Policy: coordination.FirstSuccess{MaxCandidates: 2, Revision: "accept-completed", Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
 			childBudget := run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(8), Messages: run.NewQuota(16)}
 			candidates := []run.ChildSpec{
 				{Key: contractValue(run.ParseChildKey("winner")), ProgramRef: gate.ProgramRef(), Input: contractValue(run.EncodePayload("finish")), Budget: childBudget},

@@ -2,7 +2,10 @@ package planning
 
 import "context"
 
-// Planner searches deterministically without side effects and is safe for concurrent use.
+// Planner searches deterministically without side effects and is safe for
+// concurrent use. Unlike the other callbacks a Step runs, Plan takes a
+// context: its search is unbounded, so the Step's cancellation must be able to
+// stop it.
 type Planner interface {
 	// Plan searches one immutable Problem without mutating it or performing I/O.
 	// found=false with nil error is reserved for an exhausted complete search;

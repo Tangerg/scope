@@ -15,8 +15,10 @@
 // A Runtime owns the host Build identity. Its Compiler capability lets strategy
 // packages freeze declarations into Program references without exposing the
 // Runtime's execution authority. Bind is the atomic construction API for custom
-// Definitions. Revision identifies opaque callbacks and clients; changing Build,
-// Revision, a declaration, or a child reference changes the Program reference.
+// Definitions. Revision identifies the opaque callbacks Steps run; declarative
+// configuration is digested automatically, and Effect-side collaborators do not
+// affect replay. Changing Build, Revision, a declaration, or a child reference
+// changes the Program reference.
 //
 // A Step declares each dispatcher Effect with its EffectPolicy through
 // NewDispatcherEffect: whether recovery may repeat it under the same identity,

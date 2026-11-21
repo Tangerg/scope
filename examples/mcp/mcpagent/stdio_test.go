@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -84,21 +83,14 @@ func TestMCPProcessBoundary(t *testing.T) {
 		original := unknownRequest(t, before)
 		reconnected := openExpert(t, ctx, binary)
 		replacement := managedRuntime(t, store)
-		changedGrant := peerProgram(t, ctx, replacement.Compiler(), reconnected, false, expertDisconnectQuery)
-		if changedGrant.ProgramRef() == program.ProgramRef() {
-			t.Fatal("authorization change did not change the exact binding")
+		// Authorization runs inside the call's Effect and the session is an
+		// Effect-side collaborator, so revoking the grant over a new session
+		// changes no replayed Step and keeps the exact binding.
+		revoked := peerProgram(t, ctx, replacement.Compiler(), reconnected, false, expertDisconnectQuery)
+		if revoked.ProgramRef() != program.ProgramRef() {
+			t.Fatal("an Effect-side change altered the Program binding")
 		}
-		if _, err := replacement.Recover(ctx, changedGrant, before.Root); !errors.Is(err, agentrun.ErrInvalidProgram) {
-			t.Fatalf("restoration with changed authorization=%v", err)
-		}
-		if loaded := loadLog(t, ctx, store, before.Root); loaded.Head() != before.Head() || loaded.Epoch() != before.Epoch() {
-			t.Fatal("rejected restoration advanced the authoritative log")
-		}
-		exact := peerProgram(t, ctx, replacement.Compiler(), reconnected, true, expertDisconnectQuery)
-		if exact.ProgramRef() != program.ProgramRef() {
-			t.Fatal("session identity leaked into the program binding")
-		}
-		restored, err := replacement.Recover(ctx, exact, before.Root)
+		restored, err := replacement.Recover(ctx, revoked, before.Root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +127,7 @@ func TestMCPProcessBoundary(t *testing.T) {
 
 func peerProgram(t *testing.T, ctx context.Context, compiler *agentrun.Compiler, peer *stdioPeer, permit bool, query string) agentrun.Program[interaction.Input, interaction.Output] {
 	t.Helper()
-	program, err := newBriefingProgram(ctx, compiler, briefingConfig{Session: peer.session, ExpertRevision: peer.artifact.digest.String(), AllowSearch: permit, Query: query})
+	program, err := newBriefingProgram(ctx, compiler, briefingConfig{Session: peer.session, AllowSearch: permit, Query: query})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,7 +16,11 @@ const (
 	competitionWonReason  = "another candidate satisfied the competition"
 )
 
-type SuccessPredicate func(context.Context, run.ChildKey, run.Termination) (bool, error)
+// SuccessPredicate decides whether a completed candidate wins the
+// competition. It runs inside the Step and is replayed on recovery, so it must
+// be deterministic and bounded, perform no I/O, and neither mutate nor retain
+// its arguments. An error fails the Step. FirstSuccess.Revision covers it.
+type SuccessPredicate func(key run.ChildKey, termination run.Termination) (bool, error)
 
 type firstSuccessDefinition struct {
 	descriptor run.Descriptor
@@ -94,7 +98,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, turn run.Turn) (run.Tr
 			if call.Termination == nil || call.Termination.Status() != run.StatusCompleted {
 				continue
 			}
-			accepted, err := f.definition.policy.Accept(ctx, f.state.Candidates[index].Key, *call.Termination)
+			accepted, err := f.definition.policy.Accept(f.state.Candidates[index].Key, *call.Termination)
 			if err != nil {
 				return run.Transition{}, err
 			}

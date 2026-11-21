@@ -19,9 +19,11 @@ const executionStateKind = "interaction"
 // The definition retains immutable declarations and pure validators. Executable
 // models and tools belong exclusively to the dispatcher.
 type definition struct {
-	maxResponseBytes       int
-	contextPolicy          ContextPolicy
-	prepareContext         bool
+	maxResponseBytes int
+	contextPolicy    ContextPolicy
+	// preparationDue is the frozen ContextPreparer trigger; nil means the
+	// Interaction has no preparer.
+	preparationDue         func(sequence uint64, request *chat.Request) bool
 	descriptor             run.Descriptor
 	maxModelCalls          run.Quota
 	delegates              []Delegate
@@ -43,12 +45,16 @@ func newDefinition(config Config) (*definition, error) {
 	if err != nil {
 		return nil, err
 	}
+	preparationDue, err := preparationTrigger(config.ContextPreparer)
+	if err != nil {
+		return nil, err
+	}
 	delegates := slices.Clone(config.Delegates)
 	names, err := indexDelegates(delegates, config.Tools.manifest())
 	if err != nil {
 		return nil, err
 	}
-	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, prepareContext: config.ContextPreparer != nil,
+	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, preparationDue: preparationDue,
 		descriptor:             descriptor,
 		maxModelCalls:          config.MaxModelCalls,
 		delegates:              delegates,

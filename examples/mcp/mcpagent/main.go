@@ -93,7 +93,7 @@ func run(ctx context.Context) (err error) {
 			err = errors.Join(err, fmt.Errorf("close agent runtime: %w", closeErr))
 		}
 	}()
-	program, err := newBriefingProgram(ctx, runtime.Compiler(), briefingConfig{Session: clientSession, ExpertRevision: "example.in-memory-research.v1", AllowSearch: true, Query: briefingQuery})
+	program, err := newBriefingProgram(ctx, runtime.Compiler(), briefingConfig{Session: clientSession, AllowSearch: true, Query: briefingQuery})
 	if err != nil {
 		return err
 	}
@@ -129,10 +129,9 @@ func fetchSystemPrompt(ctx context.Context, session *sdkmcp.ClientSession, topic
 }
 
 type briefingConfig struct {
-	Session        *sdkmcp.ClientSession
-	ExpertRevision string
-	AllowSearch    bool
-	Query          string
+	Session     *sdkmcp.ClientSession
+	AllowSearch bool
+	Query       string
 }
 
 type remoteToolIdentity interface {
@@ -160,8 +159,8 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 			selected = append(selected, candidate)
 		}
 	}
-	if len(selected) != 1 || config.Query == "" || config.ExpertRevision == "" {
-		return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("briefing requires the selected search tool, expert identity, and an explicit query")
+	if len(selected) != 1 || config.Query == "" {
+		return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("briefing requires the selected search tool and an explicit query")
 	}
 	permit := config.AllowSearch
 	guard, err := tool.NewGuard(tool.GuardConfig{
@@ -170,17 +169,11 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	// Revision identifies the opaque authorization callback and remote artifact.
-	// Compile owns hashing it together with the ToolSet's canonical contracts.
-	toolRevision, err := jsonv2.Marshal(struct {
-		Revision    string `json:"revision"`
-		Expert      string `json:"expert"`
-		AllowSearch bool   `json:"allow_search"`
-	}{Revision: searchRevision, Expert: config.ExpertRevision, AllowSearch: permit}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agentrun.Program[interaction.Input, interaction.Output]{}, err
-	}
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: string(toolRevision), Tools: []tool.Tool{tool.Wrap(selected[0], guard.Call)}})
+	// A ToolSet Revision identifies the scheduling declarations its Tools'
+	// Steps replay; this Tool declares none, and Compile digests its contract.
+	// Authorization runs inside each call's Effect, so it never affects replay
+	// and stays out of every Revision.
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: searchRevision, Tools: []tool.Tool{tool.Wrap(selected[0], guard.Call)}})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, fmt.Errorf("create MCP tool set: %w", err)
 	}
@@ -188,16 +181,11 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	modelRevision, err := jsonv2.Marshal(struct {
-		Revision string `json:"revision"`
-		Query    string `json:"query"`
-	}{Revision: briefingRevision, Query: config.Query}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agentrun.Program[interaction.Input, interaction.Output]{}, err
-	}
+	// The Interaction runs no Step-side callback; the model is an Effect-side
+	// collaborator.
 	return interaction.Compile(compiler, interaction.Config{
 		Name: "example.mcp_briefing", Description: "Ask the model for a topic brief using a remote MCP search tool.",
-		Revision: string(modelRevision), Model: interaction.CallModel(chatClient),
+		Revision: briefingRevision, Model: interaction.CallModel(chatClient),
 		MaxModelCalls: agentrun.NewQuota(briefingModelCallLimit), Tools: toolSet,
 	})
 }

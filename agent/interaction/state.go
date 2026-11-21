@@ -182,7 +182,7 @@ func (e executionState) validateEnvelope() error {
 func (e executionState) validatePhaseState(ctx context.Context, definition *definition) error {
 	switch e.phase() {
 	case phaseAwaitingContext:
-		if !definition.prepareContext || e.ToolRound != nil || !definition.maxModelCalls.Allows(e.ModelCallCount, 1) {
+		if definition.preparationDue == nil || e.ToolRound != nil || !definition.maxModelCalls.Allows(e.ModelCallCount, 1) {
 			return ErrInvalidExecutionState
 		}
 		if len(e.Preparation.Applied) > 0 {

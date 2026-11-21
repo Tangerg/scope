@@ -89,21 +89,6 @@ func TestUnadmittedToolArgumentsRejectTheWholeModelProposal(t *testing.T) {
 	}
 }
 
-func TestCompletionCancellationDoesNotCommitACandidate(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	definition := mustValue(newDefinition(Config{Name: "test.validator.cancel", Description: "Honor cancellation before accepting output.", CompletionValidator: func(context.Context, CompletionCandidate) (CompletionDecision, error) {
-		cancel()
-		return AcceptCompletion(), nil
-	}}))
-	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
-	advance(t, execution, 1)
-	turn := testTurn(2)
-	turn.Messages = []run.Message{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("candidate")}).settlement())}}
-	if transition, err := execution.Step(ctx, turn); !errors.Is(err, context.Canceled) || transition.Valid() {
-		t.Fatal("canceled validation completed the process", err)
-	}
-}
-
 func TestModelResponseBudgetAdmitsOnlyCanonicalBoundedSettlements(t *testing.T) {
 	response := finalResponse(strings.Repeat("<>&\u2028\u2029", 20))
 	encoded := mustValue((modelCallResult{Response: response}).settlement())

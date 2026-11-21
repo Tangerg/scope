@@ -190,6 +190,8 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 // Tool protocol still complete; otherwise the gate would only test execution.
 type corruptingReducer struct{}
 
+func (corruptingReducer) PreparationTrigger() func(uint64, *chat.Request) bool { return everyModelCall }
+
 func (corruptingReducer) PrepareContext(_ context.Context, _ interaction.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	messages := request.Clone().Messages
 	for _, message := range messages {

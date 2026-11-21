@@ -1,7 +1,6 @@
 package coordination
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 func FuzzFirstSuccessRestoreRoundTrip(f *testing.F) {
 	compiler := conformancetest.Compiler(f)
 	candidate := require(Compile[time.Time, time.Time](compiler, Config{Name: "test.candidate", Description: "Wait.", Policy: Deadline{}}))
-	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Choose a candidate.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "accept", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
+	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Choose a candidate.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
 	specs := []run.ChildSpec{
 		{Key: require(run.ParseChildKey("a")), ProgramRef: candidate.ProgramRef(), Input: require(run.EncodePayload(time.Unix(0, 0).UTC()))},
 		{Key: require(run.ParseChildKey("b")), ProgramRef: candidate.ProgramRef(), Input: require(run.EncodePayload(time.Unix(0, 0).UTC()))},

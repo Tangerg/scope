@@ -12,17 +12,23 @@ import (
 type Config struct {
 	// CompletionValidator optionally verifies a proposed final semantic output
 	// against the current WorkingContext and accumulated typed Delegate
-	// Artifacts. It is a pure Strategy callback whose identity must be covered
-	// by Revision. Nil accepts every otherwise valid completion.
+	// Artifacts. Nil accepts every otherwise valid completion.
 	CompletionValidator CompletionValidator
-	ContextPolicy       ContextPolicy
-	// ContextPreparer, when set, prepares every model context as an external
-	// Effect before the model call. Nil sends WorkingContext unchanged.
+	// ContextPolicy optionally rewrites the retained context before each model
+	// call. Nil keeps WorkingContext unchanged.
+	ContextPolicy ContextPolicy
+	// ContextPreparer, when set, prepares the model context as an external
+	// Effect before each model call its trigger selects.
 	ContextPreparer ContextPreparer
 	Name            string
 	Description     string
-	Revision        string
-	Model           ModelSource
+	// Revision identifies the Step-side callbacks the Interaction runs and
+	// replays: ContextPolicy, CompletionValidator, the ContextPreparer trigger,
+	// and the scheduling declarations of its Tools. Declarative configuration
+	// is digested automatically, and Effect-side collaborators, such as the
+	// model, Tool execution and middleware, do not affect replay.
+	Revision string
+	Model    ModelSource
 	// Tools freezes tool admission and execution policy.
 	Tools ToolSet
 	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
@@ -42,7 +48,7 @@ type Config struct {
 func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], error) {
 	var zero run.Program[Input, Output]
 	if cfg.Revision == "" {
-		return zero, fmt.Errorf("%w: Revision must identify model and callback configuration", run.ErrInvalidProgram)
+		return zero, fmt.Errorf("%w: Revision must identify the Step-side callbacks", run.ErrInvalidProgram)
 	}
 	definition, err := newDefinition(cfg)
 	if err != nil {

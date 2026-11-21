@@ -13,11 +13,21 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
+// contextPreparerFunc prepares the context before every model call.
 type contextPreparerFunc func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error)
+
+func (contextPreparerFunc) PreparationTrigger() func(uint64, *chat.Request) bool {
+	return func(uint64, *chat.Request) bool { return true }
+}
 
 func (c contextPreparerFunc) PrepareContext(ctx context.Context, invocation ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	return c(ctx, invocation, request)
 }
+
+// unusedPreparer configures a definition whose preparation never runs.
+var unusedPreparer = contextPreparerFunc(func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
+	return nil, errors.New("must not prepare")
+})
 
 func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T) {
 	advertiser := scriptTool{name: "discover", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
@@ -32,10 +42,10 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := func(_ context.Context, input Input) ([]chat.Message, error) {
-		return append(input.Messages, chat.NewUserMessage(chat.NewTextPart("local policy"))), nil
+	policy := func(request *chat.Request) ([]chat.Message, error) {
+		return append(request.Messages, chat.NewUserMessage(chat.NewTextPart("local policy"))), nil
 	}
-	definition, err := newDefinition(Config{Name: "test.context.discovery", Description: "Prepare context before using discovered tools.", Tools: tools, ContextPolicy: policy, ContextPreparer: contextPreparerFunc(nil)})
+	definition, err := newDefinition(Config{Name: "test.context.discovery", Description: "Prepare context before using discovered tools.", Tools: tools, ContextPolicy: policy, ContextPreparer: unusedPreparer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +189,7 @@ func TestCompletionValidatorRetriesWithOwnedCandidateCopies(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "direct", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		return tool.Result{Output: tool.NewTextOutput("evidence")}, nil
 	}})
-	definition, err := newDefinition(Config{Name: "test.validated", Description: "Validate the semantic result.", Tools: tools, MaxModelCalls: run.NewQuota(3), CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
+	definition, err := newDefinition(Config{Name: "test.validated", Description: "Validate the semantic result.", Tools: tools, MaxModelCalls: run.NewQuota(3), CompletionValidator: func(candidate CompletionCandidate) (CompletionDecision, error) {
 		contextCopy := candidate.WorkingContext()
 		contextCopy.Messages[0] = chat.NewUserMessage(chat.NewTextPart("mutated"))
 		if candidate.WorkingContext().Messages[0].Text() == "mutated" || len(candidate.Artifacts()) != 0 {
@@ -233,13 +243,13 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 		validator CompletionValidator
 		want      run.FailureClassification
 	}{
-		{"invalid decision", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
+		{"invalid decision", func(CompletionCandidate) (CompletionDecision, error) {
 			return CompletionDecision{}, nil
 		}, FailureCompletionDecisionInvalid},
-		{"callback failure", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
+		{"callback failure", func(CompletionCandidate) (CompletionDecision, error) {
 			return CompletionDecision{}, errors.New("evidence cannot be validated")
 		}, FailureCompletionValidatorFailed},
-		{"bounded retry", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
+		{"bounded retry", func(CompletionCandidate) (CompletionDecision, error) {
 			return RejectCompletion("Add evidence.")
 		}, FailureModelCallLimit},
 	} {

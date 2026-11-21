@@ -67,7 +67,7 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 }
 
 func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
-	definition := mustValue(newDefinition(Config{Name: "test.prepare.steer", Description: "Apply guidance after external preparation.", ContextPreparer: contextPreparerFunc(nil)}))
+	definition := mustValue(newDefinition(Config{Name: "test.prepare.steer", Description: "Apply guidance after external preparation.", ContextPreparer: unusedPreparer}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	advance(t, execution, 1)
 	empty := advance(t, execution, 2)
@@ -124,8 +124,8 @@ func TestSteeringAndOutcomeMessagesCannotCrossProtocolBoundaries(t *testing.T) {
 
 func TestLocalContextPolicyFailureCannotDispatchAModel(t *testing.T) {
 	for _, policy := range []ContextPolicy{
-		func(context.Context, Input) ([]chat.Message, error) { return nil, errors.New("policy refused") },
-		func(context.Context, Input) ([]chat.Message, error) { return nil, nil },
+		func(*chat.Request) ([]chat.Message, error) { return nil, errors.New("policy refused") },
+		func(*chat.Request) ([]chat.Message, error) { return nil, nil },
 	} {
 		definition := mustValue(newDefinition(Config{Name: "test.policy", Description: "Validate local context before emission.", ContextPolicy: policy}))
 		execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
@@ -144,25 +144,6 @@ func TestLocalContextPolicyFailureCannotDispatchAModel(t *testing.T) {
 	}
 	if after := mustValue(execution.Snapshot()); !reflect.DeepEqual(before, after) {
 		t.Fatal("canceled step changed semantic state")
-	}
-}
-
-func TestCancellationDuringLocalContextPolicyPreventsEmission(t *testing.T) {
-	for _, policyError := range []error{nil, errors.New("policy stopped")} {
-		ctx, cancel := context.WithCancel(t.Context())
-		definition := mustValue(newDefinition(Config{Name: "test.policy.cancel", Description: "Discard canceled pure callback work.", ContextPolicy: func(context.Context, Input) ([]chat.Message, error) {
-			cancel()
-			return []chat.Message{chat.NewUserMessage(chat.NewTextPart("replacement"))}, policyError
-		}}))
-		execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
-		before := mustValue(execution.Snapshot())
-		transition, err := execution.Step(ctx, testTurn(1))
-		if !errors.Is(err, context.Canceled) || len(transition.Effects()) != 0 {
-			t.Fatal("canceled context policy emitted or committed a decision", transition, err)
-		}
-		if after := mustValue(execution.Snapshot()); !reflect.DeepEqual(before, after) {
-			t.Fatal("canceled pure callback advanced interaction state")
-		}
 	}
 }
 

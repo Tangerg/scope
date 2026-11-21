@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"context"
 	"fmt"
 	"slices"
 
@@ -89,10 +88,10 @@ func (c CompletionDecision) Feedback() string { return c.feedback }
 func (c CompletionDecision) Valid() bool { return c.accepted || c.feedback != "" }
 
 // CompletionValidator decides whether a model or direct-Tool candidate is a
-// valid semantic completion. It must be bounded, deterministic and
-// side-effect-free: no I/O, clock, randomness, shared mutation or goroutines.
-// A rejected candidate must return actionable Feedback; a finite MaxModelCalls
+// valid semantic completion. It runs inside the Step and is replayed on
+// recovery, so it must be bounded, deterministic and side-effect-free: no I/O,
+// clock, randomness, shared mutation or goroutines. Revision covers it. A
+// rejected candidate must return actionable Feedback; a finite MaxModelCalls
 // remains the hard bound on retry rounds. Evaluation requiring external work
-// belongs in a managed child Process, not this callback. Computation must honor
-// cancellation of the current Step context.
-type CompletionValidator func(ctx context.Context, candidate CompletionCandidate) (CompletionDecision, error)
+// belongs in a managed child Process, not this callback.
+type CompletionValidator func(candidate CompletionCandidate) (CompletionDecision, error)

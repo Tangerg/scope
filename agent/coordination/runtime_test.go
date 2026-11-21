@@ -130,7 +130,7 @@ func TestFirstSuccessCancelsAndDrainsLosingSubtrees(t *testing.T) {
 	loser := require(Compile[time.Time, time.Time](runtime.Compiler(), Config{Name: "test.loser", Description: "Wait for later.", Policy: Deadline{}}))
 	programs[winner.ProgramRef()] = winner.Erase()
 	programs[loser.ProgramRef()] = loser.Erase()
-	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](runtime.Compiler(), Config{Name: "test.competition", Description: "Choose the first completed candidate.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "completed", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
+	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](runtime.Compiler(), Config{Name: "test.competition", Description: "Choose the first completed candidate.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "completed", Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
 	candidates := []run.ChildSpec{{Key: require(run.ParseChildKey("winner")), ProgramRef: winner.ProgramRef(), Input: require(run.EncodePayload("yes"))}, {Key: require(run.ParseChildKey("loser")), ProgramRef: loser.ProgramRef(), Input: require(run.EncodePayload(time.Now().Add(time.Hour)))}}
 	handle := require(runtime.Start(t.Context(), program, run.StartRequest[[]run.ChildSpec]{ID: run.StartID{Scope: "test", Key: t.Name()}, Input: candidates}))
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -162,7 +162,7 @@ func TestFirstSuccessCancelsAndDrainsLosingSubtrees(t *testing.T) {
 func TestFirstSuccessMatchesExplicitCompletionAndExit(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	deadline := require(Compile[time.Time, time.Time](runtime.Compiler(), Config{Name: "test.deadline", Description: "Wait.", Policy: Deadline{}}))
-	definition := require(newFirstSuccess("test.competition", "Choose an acceptable result.", FirstSuccess{MaxCandidates: 2, Revision: "positive", Accept: func(_ context.Context, _ run.ChildKey, result run.Termination) (bool, error) {
+	definition := require(newFirstSuccess("test.competition", "Choose an acceptable result.", FirstSuccess{MaxCandidates: 2, Revision: "positive", Accept: func(_ run.ChildKey, result run.Termination) (bool, error) {
 		output, _ := result.Output()
 		value, err := output.Decode[int]()
 		return value > 0, err
@@ -201,7 +201,7 @@ func TestDeadlineUsesSameIdentityTimerAndCompletesAtAbsoluteTime(t *testing.T) {
 
 func TestCoordinationRejectsMalformedPolicyAndState(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	for _, policy := range []Policy{nil, InputGate{}, FirstSuccess{}, FirstSuccess{MaxCandidates: 1, Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}} {
+	for _, policy := range []Policy{nil, InputGate{}, FirstSuccess{}, FirstSuccess{MaxCandidates: 1, Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}} {
 		if _, err := Compile[run.Payload, run.Payload](compiler, Config{Name: "test.invalid", Description: "Reject invalid configuration.", Policy: policy}); err == nil {
 			t.Fatalf("accepted policy %#v", policy)
 		}

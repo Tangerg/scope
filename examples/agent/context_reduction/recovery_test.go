@@ -68,6 +68,8 @@ type contextProbe struct {
 	last     *chat.Request
 }
 
+func (*contextProbe) PreparationTrigger() func(uint64, *chat.Request) bool { return everyModelCall }
+
 func (c *contextProbe) PrepareContext(ctx context.Context, invocation interaction.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	messages, err := (duplicateToolOutputReducer{}).PrepareContext(ctx, invocation, request)
 	if err != nil {

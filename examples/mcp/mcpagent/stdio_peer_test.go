@@ -15,7 +15,6 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/tools/process"
 )
 
@@ -37,7 +36,6 @@ type expertStatus struct {
 
 type expertArtifact struct {
 	binary string
-	digest agentrun.Digest
 }
 
 type stdioPeer struct {
@@ -56,11 +54,7 @@ func buildExpert(t *testing.T) expertArtifact {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build independent expert: %v\n%s", err, output)
 	}
-	data, err := os.ReadFile(binary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return expertArtifact{binary: binary, digest: agentrun.ComputeDigest(data)}
+	return expertArtifact{binary: binary}
 }
 
 func openExpert(t *testing.T, ctx context.Context, artifact expertArtifact) *stdioPeer {

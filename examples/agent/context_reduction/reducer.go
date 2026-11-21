@@ -32,6 +32,14 @@ type duplicateOutputReference struct {
 // it neither summarizes evidence nor treats an output as permission to act.
 type duplicateToolOutputReducer struct{}
 
+// everyModelCall prepares before each model call: the reduction is cheap, and
+// a recorded preparation per call is what the evaluation compares.
+func everyModelCall(uint64, *chat.Request) bool { return true }
+
+func (duplicateToolOutputReducer) PreparationTrigger() func(uint64, *chat.Request) bool {
+	return everyModelCall
+}
+
 func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ interaction.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

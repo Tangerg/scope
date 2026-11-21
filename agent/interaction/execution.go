@@ -24,7 +24,7 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	}
 	switch e.state.phase() {
 	case phaseReadyModel:
-		return e.startModelCall(ctx, turn)
+		return e.startModelCall(turn)
 	case phaseAdvancingTools, phaseRoundComplete:
 		return e.continueToolRound(ctx, turn)
 	case phaseAwaitingContext:
@@ -38,12 +38,12 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	}
 }
 
-func (e *execution) startModelCall(ctx context.Context, turn run.Turn) (run.Transition, error) {
+func (e *execution) startModelCall(turn run.Turn) (run.Transition, error) {
 	consumed, err := e.acceptSteer(turn.Messages)
 	if err != nil {
 		return run.Transition{}, err
 	}
-	return e.requestModel(ctx, turn, consumed, e.state.applyPendingSteer())
+	return e.requestModel(turn, consumed, e.state.applyPendingSteer())
 }
 
 func (e *execution) continueToolRound(ctx context.Context, turn run.Turn) (run.Transition, error) {
@@ -52,7 +52,7 @@ func (e *execution) continueToolRound(ctx context.Context, turn run.Turn) (run.T
 		return run.Transition{}, err
 	}
 	if e.state.phase() == phaseRoundComplete {
-		return e.finishToolCallBatch(ctx, turn, consumed, e.state.ToolRound.Response.Output.Message)
+		return e.finishToolCallBatch(turn, consumed, e.state.ToolRound.Response.Output.Message)
 	}
 	return e.advanceToolCallBatch(ctx, turn, consumed)
 }
@@ -70,10 +70,7 @@ func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return e.state.snapshot()
 }
 
-func (e *execution) requestModel(
-	ctx context.Context, turn run.Turn, consumedMessages uint32,
-	appliedSteerSignalIDs []run.SignalID,
-) (run.Transition, error) {
+func (e *execution) requestModel(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID) (run.Transition, error) {
 	if !e.definition.maxModelCalls.Allows(e.state.ModelCallCount, 1) {
 		return stepfail.Transition(
 			consumedMessages,
@@ -86,10 +83,7 @@ func (e *execution) requestModel(
 		return run.Transition{}, run.ErrCounterExhausted
 	}
 	if e.definition.contextPolicy != nil {
-		messages, err := e.definition.contextPolicy(ctx, e.state.WorkingContext.clone())
-		if contextErr := ctx.Err(); contextErr != nil {
-			return run.Transition{}, contextErr
-		}
+		messages, err := e.definition.contextPolicy(e.modelRequest())
 		if err != nil {
 			return stepfail.Transition(consumedMessages, FailureContextPolicyFailed.Kind(), FailureContextPolicyFailed.Code(), err.Error())
 		}
@@ -97,11 +91,15 @@ func (e *execution) requestModel(
 			return run.Transition{}, err
 		}
 	}
-	if e.definition.prepareContext {
+	if due := e.definition.preparationDue; due != nil && due(e.state.ModelCallCount+1, e.modelRequest()) {
 		return e.emitPreparation(turn, consumedMessages, appliedSteerSignalIDs)
 	}
 	return e.emitModelCall(turn, consumedMessages, appliedSteerSignalIDs)
 }
+
+// modelRequest is the request the next model call would send, detached from
+// the state so Step callbacks may read it without reaching retained values.
+func (e *execution) modelRequest() *chat.Request { return e.nextModelCall(nil).request() }
 
 // nextModelCall describes the next model request. Effects encode it before the
 // state changes again, so it borrows values.
@@ -189,7 +187,7 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 	}
 	e.state.addSteer(arrival.steer)
 	if len(calls) == 0 {
-		return e.acceptFinalModelResponse(ctx, turn, consumedMessages, response)
+		return e.acceptFinalModelResponse(turn, consumedMessages, response)
 	}
 	round := &toolCallRound{Response: response}
 	if round.truncated() {
@@ -212,7 +210,6 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 }
 
 func (e *execution) acceptFinalModelResponse(
-	ctx context.Context,
 	turn run.Turn,
 	consumedMessages uint32,
 	response *chat.Response,
@@ -222,13 +219,13 @@ func (e *execution) acceptFinalModelResponse(
 		return run.Transition{}, fmt.Errorf("%w: model response has no finished assistant message", ErrInvalidModelResponse)
 	}
 	if e.state.PendingSteer == nil {
-		return e.finishOrRetry(ctx, turn, consumedMessages, Output{
+		return e.finishOrRetry(turn, consumedMessages, Output{
 			ModelResponse: response,
 			ModelCalls:    e.state.ModelCallCount,
 		}, []chat.Message{*message})
 	}
 	e.state.appendToContext(*message)
-	return e.requestModel(ctx, turn, consumedMessages, e.state.applyPendingSteer())
+	return e.requestModel(turn, consumedMessages, e.state.applyPendingSteer())
 }
 
 // complete admits an Output by the canonical payload encoding the Runtime
@@ -254,7 +251,6 @@ func (e *execution) complete(consumedMessages uint32, output Output) (run.Transi
 // finishOrRetry receives an Output both producers assemble from admitted
 // evidence, so it already satisfies Output.Validate.
 func (e *execution) finishOrRetry(
-	ctx context.Context,
 	turn run.Turn,
 	consumedMessages uint32,
 	output Output,
@@ -268,10 +264,7 @@ func (e *execution) finishOrRetry(
 			artifacts:      newArtifacts(e.state.ArtifactRecords),
 		}
 		var err error
-		decision, err = e.definition.completionValidator(ctx, candidate)
-		if cancelErr := ctx.Err(); cancelErr != nil {
-			return run.Transition{}, cancelErr
-		}
+		decision, err = e.definition.completionValidator(candidate)
 		if err != nil {
 			return stepfail.Transition(
 				consumedMessages,
@@ -294,7 +287,7 @@ func (e *execution) finishOrRetry(
 	}
 	feedback := chat.NewUserMessage(chat.NewTextPart(decision.Feedback()))
 	e.state.appendToContext(slices.Concat(completionContext, []chat.Message{feedback})...)
-	return e.requestModel(ctx, turn, consumedMessages, nil)
+	return e.requestModel(turn, consumedMessages, nil)
 }
 
 func (e *execution) advanceToolCallBatch(ctx context.Context, turn run.Turn, consumedMessages uint32) (run.Transition, error) {
@@ -311,7 +304,6 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, turn run.Turn, con
 }
 
 func (e *execution) finishToolCallBatch(
-	ctx context.Context,
 	turn run.Turn,
 	consumedMessages uint32,
 	assistant *chat.Message,
@@ -329,13 +321,13 @@ func (e *execution) finishToolCallBatch(
 	}
 	e.state.ToolRound = nil
 	if direct {
-		return e.finishOrRetry(ctx, turn, consumedMessages, Output{
+		return e.finishOrRetry(turn, consumedMessages, Output{
 			DirectToolResults: results,
 			ModelCalls:        e.state.ModelCallCount,
 		}, completionContext)
 	}
 	e.state.appendToContext(completionContext...)
-	return e.requestModel(ctx, turn, consumedMessages, e.state.applyPendingSteer())
+	return e.requestModel(turn, consumedMessages, e.state.applyPendingSteer())
 }
 
 func collectSteerSignals(messages []run.Message) (steerBatch, uint32, error) {

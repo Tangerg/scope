@@ -16,7 +16,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) {
 		return delegateValue{Value: value.Value * 2}, nil
 	})
-	definition := mustValue(newDefinition(Config{Name: "test.artifacts", Description: "Restore ordered typed evidence.", Delegates: []Delegate{delegate}, CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
+	definition := mustValue(newDefinition(Config{Name: "test.artifacts", Description: "Restore ordered typed evidence.", Delegates: []Delegate{delegate}, CompletionValidator: func(candidate CompletionCandidate) (CompletionDecision, error) {
 		artifacts := candidate.Artifacts()
 		if len(artifacts) != 2 {
 			return CompletionDecision{}, errors.New("missing delegated evidence")

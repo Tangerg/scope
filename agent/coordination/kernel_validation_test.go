@@ -21,7 +21,7 @@ func TestCoordinationConstructionRejectsInvalidNamesSchemasAndLimits(t *testing.
 		{Name: "test.deadline", Policy: Deadline{}},
 		{Name: "test.gate", Description: "Ask.", Policy: InputGate{AnswerSchema: schema}},
 		{Name: "test.gate", Description: "Ask.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema, MaxAnswerBytes: -1}},
-		{Name: "invalid name", Description: "Race.", Policy: FirstSuccess{MaxCandidates: 1, Revision: "accept", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}},
+		{Name: "invalid name", Description: "Race.", Policy: FirstSuccess{MaxCandidates: 1, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}},
 	} {
 		if _, err := Compile[run.Payload, run.Payload](compiler, config); err == nil {
 			t.Fatalf("invalid construction admitted: %+v", config)
@@ -162,7 +162,7 @@ func TestTimerProtocolRejectionAndCancellationAreDefinite(t *testing.T) {
 func TestCompetitionRestorationRejectsContradictoryPendingState(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
 	candidate := require(Compile[time.Time, time.Time](compiler, Config{Name: "test.candidate", Description: "Wait.", Policy: Deadline{}}))
-	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Choose a candidate.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "accept", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
+	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Choose a candidate.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
 	definition := program.Definition()
 	a := run.ChildSpec{Key: require(run.ParseChildKey("a")), ProgramRef: candidate.ProgramRef(), Input: require(run.EncodePayload(time.Now()))}
 	b := a
@@ -197,7 +197,7 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 		revision string
 		failure  error
 	}{{"reject", nil}, {"fail", cause}} {
-		program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Assess one candidate.", Policy: FirstSuccess{MaxCandidates: 1, Revision: sample.revision, Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return false, sample.failure }}}))
+		program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Assess one candidate.", Policy: FirstSuccess{MaxCandidates: 1, Revision: sample.revision, Accept: func(run.ChildKey, run.Termination) (bool, error) { return false, sample.failure }}}))
 		execution := require(program.Definition().Start(input))
 		require(execution.Step(t.Context(), turn(1)))
 		process := require(turn(1).Process.Child(require(run.ParseChildKey("candidate"))))
@@ -217,7 +217,7 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 			t.Fatal("unacceptable result became a winner")
 		}
 	}
-	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.rejection", Description: "Retain spawn rejection.", Policy: FirstSuccess{MaxCandidates: 1, Revision: "accept", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) {
+	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.rejection", Description: "Retain spawn rejection.", Policy: FirstSuccess{MaxCandidates: 1, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) {
 		t.Fatal("rejected spawn reached predicate")
 		return true, nil
 	}}}))
@@ -235,7 +235,7 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 
 func TestCompetitionRestorationBindsEachObligationToItsDeclaredCandidate(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
-	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Bind candidate obligations.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "accept", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
+	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.competition", Description: "Bind candidate obligations.", Policy: FirstSuccess{MaxCandidates: 2, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
 	a := run.ChildSpec{Key: require(run.ParseChildKey("a")), ProgramRef: program.ProgramRef(), Input: require(run.EncodePayload([]run.ChildSpec{}))}
 	b := a
 	b.Key = require(run.ParseChildKey("b"))

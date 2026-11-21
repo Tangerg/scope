@@ -10,8 +10,9 @@ import (
 // Config binds a planner, its world sensor and executable actions. Compile's
 // input type parameter supplies the schema of the opaque task input passed to
 // the Sensor, ActionExecutors, and child input functions. Revision identifies
-// their opaque settings, including cost functions and child input conversion.
-// The compiler hashes the declared planning domain.
+// the opaque callbacks Steps replay: the Planner, cost functions, and child
+// input conversion. The Sensor and ActionExecutors run inside Effects and do
+// not affect replay. The compiler hashes the declared planning domain.
 type Config struct {
 	Name        string
 	Description string

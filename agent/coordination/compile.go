@@ -16,6 +16,8 @@ type InputGate struct {
 
 func (InputGate) coordinationPolicy() {}
 
+// FirstSuccess races candidate children and keeps the first completed one
+// Accept admits, canceling the rest. Revision identifies Accept.
 type FirstSuccess struct {
 	MaxCandidates uint32
 	Accept        SuccessPredicate

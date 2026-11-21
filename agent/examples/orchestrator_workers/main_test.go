@@ -74,7 +74,7 @@ func newPlanningDelegateRoot(
 	return program.Erase()
 }
 
-func validatePlanningCompletion(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+func validatePlanningCompletion(candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 	artifacts := candidate.Artifacts()
 	if len(artifacts) != 2 {
 		return interaction.RejectCompletion("Complete both planned review tasks.")

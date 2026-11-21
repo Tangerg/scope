@@ -3,8 +3,9 @@
 // kernel sees only opaque execution state and declared Effects.
 //
 // [Compile] freezes the planning domain, action bindings, and limits using the
-// Runtime's Compiler. Revision identifies the opaque Sensor, Planner, and action
-// implementations. The definition retains only action declarations; its
+// Runtime's Compiler. Revision identifies the opaque callbacks Steps replay, such
+// as the Planner; the Sensor and ActionExecutors run inside Effects and do not
+// affect replay. The definition retains only action declarations; its
 // dispatcher owns the Sensor and ActionExecutors and shares the same immutable
 // action index, so execution cannot diverge from the declared authority.
 // A Planner performs deterministic search over a Problem.

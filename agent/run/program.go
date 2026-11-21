@@ -14,8 +14,10 @@ import (
 
 var ErrInvalidProgram = errors.New("run: invalid program")
 
-// Bind hashes the declaration after freezing its canonical JSON. Opaque
-// collaborators must be identified by Revision in their declaring configuration.
+// Bind hashes the declaration after freezing its canonical JSON, including
+// Configuration. Revision must identify the opaque callbacks the Definition's
+// Steps run, because replay depends on them; the Dispatcher and other
+// Effect-side collaborators do not affect replay.
 type BindingConfig struct {
 	Definition    Definition
 	Dispatcher    Dispatcher

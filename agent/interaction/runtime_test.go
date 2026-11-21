@@ -496,7 +496,7 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 			return callResponse(chat.ToolCall{ID: "delegation", Name: "worker", Arguments: `{"value":3}`}), nil
 		}
 		return finalResponse("six"), nil
-	})), CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
+	})), CompletionValidator: func(candidate CompletionCandidate) (CompletionDecision, error) {
 		artifacts := candidate.Artifacts()
 		if len(artifacts) != 1 {
 			return CompletionDecision{}, errors.New("missing delegate artifact")

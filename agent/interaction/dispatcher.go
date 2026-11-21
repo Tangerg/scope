@@ -28,11 +28,8 @@ type dispatcher struct {
 // newDispatcher takes the executable half of config; definition already holds
 // its declarations.
 func newDispatcher(definition *definition, config Config) (*dispatcher, error) {
-	switch {
-	case lo.IsNil(config.Model):
+	if lo.IsNil(config.Model) {
 		return nil, fmt.Errorf("%w: Model is required", ErrInvalidConfig)
-	case config.ContextPreparer != nil && lo.IsNil(config.ContextPreparer):
-		return nil, fmt.Errorf("%w: ContextPreparer is typed nil", ErrInvalidConfig)
 	}
 	if err := config.Model.validate(); err != nil {
 		return nil, err
