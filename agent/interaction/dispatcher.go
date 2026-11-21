@@ -62,7 +62,7 @@ func (d *dispatcher) Dispatch(
 	case operationModelCall:
 		return d.dispatchModel(ctx, envelope.ModelCall, emit)
 	case operationToolCall:
-		if !d.tools.Configured() {
+		if !d.tools.Valid() {
 			return failedSettlement(ErrInvalidToolSet)
 		}
 		return d.tools.dispatcher.Dispatch(ctx, request, emit)

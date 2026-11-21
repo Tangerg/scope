@@ -125,11 +125,11 @@ func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 		{Tools: []tool.Tool{decoratedTool{Tool: capabilityPanicTool{mode: "direct"}}}},
 		{Tools: []tool.Tool{executable}, MaxConcurrentCalls: -1},
 	} {
-		if set, err := NewToolSet(config); !errors.Is(err, ErrInvalidToolSet) || set.Configured() {
+		if set, err := NewToolSet(config); !errors.Is(err, ErrInvalidToolSet) || set.Valid() {
 			t.Fatalf("invalid tool declaration admitted: %+v, %v", config, err)
 		}
 	}
-	if (ToolSet{}).Configured() {
+	if (ToolSet{}).Valid() {
 		t.Fatal("zero tool set reports executable authority")
 	}
 }

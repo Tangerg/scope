@@ -65,7 +65,8 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	return ToolSet{dispatcher: dispatcher, revision: config.Revision, maxConcurrentCalls: config.MaxConcurrentCalls}, nil
 }
 
-func (t ToolSet) Configured() bool { return t.dispatcher != nil }
+// Valid rejects the zero ToolSet, which binds no Tool.
+func (t ToolSet) Valid() bool { return t.dispatcher != nil }
 
 // concurrencyLimit is one when no Tool can overlap another, including for a
 // zero ToolSet whose Delegates still run as calls.
