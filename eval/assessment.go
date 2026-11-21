@@ -37,18 +37,20 @@ type Assessment[T any] struct {
 }
 
 func NewAssessment[T any](config AssessmentConfig[T]) (Assessment[T], error) {
-	assessment := Assessment[T]{id: config.ID, evaluator: config.Evaluator}
-	if err := assessment.Validate(); err != nil {
+	if err := config.ID.Validate(); err != nil {
 		return Assessment[T]{}, err
 	}
-	return assessment, nil
+	if lo.IsNil(config.Evaluator) {
+		return Assessment[T]{}, fmt.Errorf("%w: assessment %q evaluator is nil", ErrInvalidAssessment, config.ID)
+	}
+	return Assessment[T]{id: config.ID, evaluator: config.Evaluator}, nil
 }
 
 func (a Assessment[T]) ID() AssessmentID { return a.id }
 
 func (a Assessment[T]) Evaluate(ctx context.Context, subject T) (Report, error) {
-	if err := a.Validate(); err != nil {
-		return Report{}, err
+	if !a.Valid() {
+		return Report{}, fmt.Errorf("%w: assessment was not constructed with NewAssessment", ErrInvalidAssessment)
 	}
 	if err := ctx.Err(); err != nil {
 		return Report{}, err
@@ -63,15 +65,9 @@ func (a Assessment[T]) Evaluate(ctx context.Context, subject T) (Report, error) 
 	return report, nil
 }
 
-func (a Assessment[T]) Validate() error {
-	if err := a.id.Validate(); err != nil {
-		return err
-	}
-	if lo.IsNil(a.evaluator) {
-		return fmt.Errorf("%w: assessment %q evaluator is nil", ErrInvalidAssessment, a.id)
-	}
-	return nil
-}
+// Valid rejects the zero Assessment. NewAssessment admits identity and
+// evaluator once, so presence is enough.
+func (a Assessment[T]) Valid() bool { return a.evaluator != nil }
 
 func (a Assessment[T]) run(ctx context.Context, subject T) AssessmentResult {
 	if err := ctx.Err(); err != nil {

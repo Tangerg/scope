@@ -36,8 +36,8 @@ func NewSuite[T any](config SuiteConfig[T]) (*Suite[T], error) {
 	}
 	seen := make(map[AssessmentID]struct{}, len(config.Assessments))
 	for _, assessment := range config.Assessments {
-		if err := assessment.Validate(); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrInvalidEvaluatorConfig, err)
+		if !assessment.Valid() {
+			return nil, fmt.Errorf("%w: %w: assessment was not constructed with NewAssessment", ErrInvalidEvaluatorConfig, ErrInvalidAssessment)
 		}
 		if _, exists := seen[assessment.ID()]; exists {
 			return nil, fmt.Errorf("%w: duplicate assessment %q", ErrInvalidEvaluatorConfig, assessment.ID())
