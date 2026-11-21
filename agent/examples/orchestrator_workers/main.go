@@ -228,7 +228,10 @@ func interactionProgram(compiler *agentrun.Compiler, name, description string, m
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	program, err := interaction.Compile(compiler, interaction.Config{Name: name, Description: description, MaxModelCalls: agentrun.NewQuota(interactionModelCallLimit), Model: interaction.CallModel(client)})
-	return program.Erase(), err
+	if err != nil {
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
+	}
+	return program.Erase(), nil
 }
 
 func transformProgram[I, O any](
