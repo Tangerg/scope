@@ -65,7 +65,7 @@ func Fuse(config FusionConfig) (*PipelineRetriever, error) {
 	}
 	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
 		rankings, err := parallelResults(ctx, "rag: fuse", retrievers, "retriever", concurrency,
-			func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
+			func(ctx context.Context, retriever Retriever) (Candidates, error) {
 				return retrieve(ctx, query, retriever.Retrieve)
 			})
 		if err != nil {

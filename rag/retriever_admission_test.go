@@ -12,7 +12,7 @@ func TestParallelResultsStopsAdmissionAndReportsCallerCancellation(t *testing.T)
 	consequence := errors.New("failed after caller cancellation")
 	calls := 0
 	results, err := parallelResults(ctx, "retrieve", make([]int, 10000), "query", 1,
-		func(context.Context, int, int) (int, error) {
+		func(context.Context, int) (int, error) {
 			calls++
 			cancel()
 			return 0, consequence

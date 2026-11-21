@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 
 	"github.com/samber/lo"
+	"golang.org/x/sync/errgroup"
 )
 
 // retrieve checks an external stage's result. Callers establish query validity
@@ -122,7 +122,7 @@ func Expand(config ExpansionConfig) (*PipelineRetriever, error) {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
 		rankings, err := parallelResults(ctx, "rag: expand", queries, "query", concurrency,
-			func(ctx context.Context, _ int, q Query) (Candidates, error) {
+			func(ctx context.Context, q Query) (Candidates, error) {
 				return retrieve(ctx, q, config.Retriever.Retrieve)
 			})
 		if err != nil {
@@ -241,68 +241,39 @@ func parallelResults[Item, Out any](
 	items []Item,
 	itemLabel string,
 	maxConcurrent int,
-	fn func(context.Context, int, Item) (Out, error),
+	fn func(context.Context, Item) (Out, error),
 ) ([]Out, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
 	// Any failure fails the whole call, so the first one cancels the rest of the
-	// fan-out instead of letting siblings spend work on a discarded result.
-	fanout, stop := context.WithCancel(ctx)
-	defer stop()
-
+	// fan-out instead of letting siblings spend work on a discarded result. The
+	// limit is acquired before a goroutine starts, so the expanded query count
+	// cannot determine how many are active.
+	group, fanout := errgroup.WithContext(ctx)
+	group.SetLimit(maxConcurrent)
 	// Indexed results preserve ranking order independently of completion order.
-	// Acquire a slot before starting a goroutine so expanded query count cannot
-	// determine the number of active goroutines.
 	results := make([]Out, len(items))
-	var (
-		failureMu sync.Mutex
-		failure   error
-	)
-
-	var wg sync.WaitGroup
-	slots := make(chan struct{}, min(maxConcurrent, len(items)))
-admission:
 	for index, item := range items {
 		if fanout.Err() != nil {
 			break
 		}
-		select {
-		case <-fanout.Done():
-			break admission
-		case slots <- struct{}{}:
-		}
-		if fanout.Err() != nil {
-			<-slots
-			break
-		}
-		wg.Go(func() {
-			defer func() { <-slots }()
-			result, err := fn(fanout, index, item)
-			if err == nil {
-				results[index] = result
-				return
+		group.Go(func() error {
+			if err := fanout.Err(); err != nil {
+				return err
 			}
-			failureMu.Lock()
-			defer failureMu.Unlock()
-			// Once the fan-out is canceled, by an earlier failure or by the
-			// caller, later errors are consequences of that cancellation and
-			// must not mask its cause.
-			if fanout.Err() == nil {
-				failure = fmt.Errorf("%s #%d: %w", itemLabel, index, err)
-				stop()
+			result, err := fn(fanout, item)
+			if err != nil {
+				return fmt.Errorf("%s #%d: %w", itemLabel, index, err)
 			}
+			results[index] = result
+			return nil
 		})
 	}
-	wg.Wait()
-
-	if failure != nil {
-		return nil, fmt.Errorf("%s: %w", op, failure)
-	}
+	failure := group.Wait()
+	// A caller's cancellation is the cause; failures after it are consequences.
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
-
+	if failure != nil {
+		return nil, fmt.Errorf("%s: %w", op, failure)
+	}
 	return results, nil
 }
