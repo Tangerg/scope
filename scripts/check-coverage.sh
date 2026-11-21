@@ -18,7 +18,7 @@ module_budget=(
   "eval/trajectory 90"
   "examples 72"
   "historystores/cassandra 39.8"
-  "historystores/cosmosdb 22.0"
+  "historystores/azurecosmos 22.0"
   "historystores/mongodb 29.3"
   "historystores/neo4j 33.1"
   "historystores/postgres 45.9"

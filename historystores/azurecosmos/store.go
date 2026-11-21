@@ -1,4 +1,4 @@
-package cosmosdb
+package azurecosmos
 
 import (
 	"cmp"
@@ -20,13 +20,13 @@ import (
 const PartitionKeyPath = "/conversation_id"
 const requiredConsistency = azcosmos.ConsistencyLevelStrong
 
-var ErrIncompatibleContainer = errors.New("cosmosdb: container is incompatible")
+var ErrIncompatibleContainer = errors.New("azurecosmos: container is incompatible")
 
 type StoreConfig struct{ Container *azcosmos.ContainerClient }
 
 func (s StoreConfig) Validate() error {
 	if s.Container == nil {
-		return errors.New("cosmosdb: container is required")
+		return errors.New("azurecosmos: container is required")
 	}
 	return nil
 }
@@ -46,7 +46,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 	container, err := config.Container.Read(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("cosmosdb: read container: %w", err)
+		return nil, fmt.Errorf("azurecosmos: read container: %w", err)
 	}
 	if err := validatePartitionKey(container.ContainerProperties); err != nil {
 		return nil, err
@@ -78,17 +78,17 @@ func (s *Store) readConversation(ctx context.Context, id history.ConversationID)
 		return newConversationDocument(id), "", false, nil
 	}
 	if err != nil {
-		return conversationDocument{}, "", false, fmt.Errorf("cosmosdb: read conversation: %w", err)
+		return conversationDocument{}, "", false, fmt.Errorf("azurecosmos: read conversation: %w", err)
 	}
 	var document conversationDocument
 	if err := jsonv2.Unmarshal(response.Value, &document); err != nil {
-		return document, "", false, fmt.Errorf("cosmosdb: decode conversation: %w", err)
+		return document, "", false, fmt.Errorf("azurecosmos: decode conversation: %w", err)
 	}
 	if err := document.validate(id); err != nil {
 		return document, "", false, err
 	}
 	if response.ETag == "" {
-		return document, "", false, errors.New("cosmosdb: conversation has no ETag")
+		return document, "", false, errors.New("azurecosmos: conversation has no ETag")
 	}
 	return document, response.ETag, true, nil
 }
@@ -99,17 +99,17 @@ func (s *Store) readAppend(ctx context.Context, batch history.Batch, id string) 
 		return appendDocument{}, false, nil
 	}
 	if err != nil {
-		return appendDocument{}, false, fmt.Errorf("cosmosdb: read receipt: %w", err)
+		return appendDocument{}, false, fmt.Errorf("azurecosmos: read receipt: %w", err)
 	}
 	var document appendDocument
 	if err := jsonv2.Unmarshal(response.Value, &document); err != nil {
-		return document, false, fmt.Errorf("cosmosdb: decode receipt: %w", err)
+		return document, false, fmt.Errorf("azurecosmos: decode receipt: %w", err)
 	}
 	if err := document.validate(batch.ConversationID()); err != nil {
 		return document, false, err
 	}
 	if document.AppendID != batch.ID().String() {
-		return document, false, errors.New("cosmosdb: receipt belongs to a different append")
+		return document, false, errors.New("azurecosmos: receipt belongs to a different append")
 	}
 	return document, true, nil
 }
@@ -118,15 +118,15 @@ func (s *Store) apply(ctx context.Context, batch azcosmos.TransactionalBatch, op
 	consistency := requiredConsistency
 	response, err := s.container.ExecuteTransactionalBatch(ctx, batch, &azcosmos.TransactionalBatchOptions{ConsistencyLevel: &consistency})
 	if err != nil {
-		return false, fmt.Errorf("cosmosdb: execute transaction: %w", err)
+		return false, fmt.Errorf("azurecosmos: execute transaction: %w", err)
 	}
 	if len(response.OperationResults) != operations {
-		return false, fmt.Errorf("cosmosdb: transaction returned %d results for %d operations", len(response.OperationResults), operations)
+		return false, fmt.Errorf("azurecosmos: transaction returned %d results for %d operations", len(response.OperationResults), operations)
 	}
 	if response.Success {
 		for index, result := range response.OperationResults {
 			if result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
-				return false, fmt.Errorf("cosmosdb: committed transaction has invalid status %d at operation %d", result.StatusCode, index)
+				return false, fmt.Errorf("azurecosmos: committed transaction has invalid status %d at operation %d", result.StatusCode, index)
 			}
 		}
 		return true, nil
@@ -137,18 +137,18 @@ func (s *Store) apply(ctx context.Context, batch azcosmos.TransactionalBatch, op
 			continue
 		}
 		if failureIndex >= 0 {
-			return false, errors.New("cosmosdb: rollback named more than one failed operation")
+			return false, errors.New("azurecosmos: rollback named more than one failed operation")
 		}
 		failureIndex = index
 	}
 	if failureIndex < 0 {
-		return false, errors.New("cosmosdb: transaction rolled back without a cause")
+		return false, errors.New("azurecosmos: transaction rolled back without a cause")
 	}
 	status := response.OperationResults[failureIndex].StatusCode
 	if status == http.StatusConflict || status == http.StatusPreconditionFailed {
 		return false, nil
 	}
-	return false, fmt.Errorf("cosmosdb: transaction rolled back at operation %d with status %d", failureIndex, status)
+	return false, fmt.Errorf("azurecosmos: transaction rolled back at operation %d with status %d", failureIndex, status)
 }
 
 func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receipt, error) {
@@ -165,10 +165,10 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 	payload := appendDocument{ID: id, Kind: appendKind, ConversationID: batch.ConversationID().String(), AppendID: batch.ID().String(), Digest: batch.Digest(), Messages: string(batch.EncodedMessages()), Sequence: formatSequence(0), TTL: permanentTTL}
 	body, err := jsonv2.Marshal(payload)
 	if err != nil {
-		return history.Receipt{}, fmt.Errorf("cosmosdb: encode append: %w", err)
+		return history.Receipt{}, fmt.Errorf("azurecosmos: encode append: %w", err)
 	}
 	if len(body) > maximumAppendDocumentBytes {
-		return history.Receipt{}, fmt.Errorf("cosmosdb: append document exceeds %d bytes", maximumAppendDocumentBytes)
+		return history.Receipt{}, fmt.Errorf("azurecosmos: append document exceeds %d bytes", maximumAppendDocumentBytes)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -211,7 +211,7 @@ func (s *Store) appendAttempt(ctx context.Context, batch history.Batch, payload 
 	}
 	gate, err := jsonv2.Marshal(conversation)
 	if err != nil {
-		return appendDocument{}, false, false, fmt.Errorf("cosmosdb: encode conversation: %w", err)
+		return appendDocument{}, false, false, fmt.Errorf("azurecosmos: encode conversation: %w", err)
 	}
 	transaction := s.container.NewTransactionalBatch(azcosmos.NewPartitionKeyString(batch.ConversationID().String()))
 	if exists {
@@ -224,7 +224,7 @@ func (s *Store) appendAttempt(ctx context.Context, batch history.Batch, payload 
 		payload.Sequence = conversation.LastSequence
 		body, encodeErr := jsonv2.Marshal(payload)
 		if encodeErr != nil {
-			return appendDocument{}, false, false, fmt.Errorf("cosmosdb: encode append: %w", encodeErr)
+			return appendDocument{}, false, false, fmt.Errorf("azurecosmos: encode append: %w", encodeErr)
 		}
 		transaction.CreateItem(body, nil)
 		operations++
@@ -254,12 +254,12 @@ func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Mes
 	for pager.More() {
 		response, pageErr := pager.NextPage(ctx)
 		if pageErr != nil {
-			return nil, fmt.Errorf("cosmosdb: read append page: %w", pageErr)
+			return nil, fmt.Errorf("azurecosmos: read append page: %w", pageErr)
 		}
 		for _, item := range response.Items {
 			var document appendDocument
 			if err := jsonv2.Unmarshal(item, &document); err != nil {
-				return nil, fmt.Errorf("cosmosdb: decode append: %w", err)
+				return nil, fmt.Errorf("azurecosmos: decode append: %w", err)
 			}
 			if err := document.validate(id); err != nil {
 				return nil, err
@@ -272,7 +272,7 @@ func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Mes
 		return nil, closureErr
 	}
 	if !exists {
-		return nil, errors.New("cosmosdb: conversation gate disappeared")
+		return nil, errors.New("azurecosmos: conversation gate disappeared")
 	}
 	if current.closed() {
 		return []chat.Message{}, nil
@@ -281,16 +281,16 @@ func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Mes
 	messages := []chat.Message{}
 	for index, document := range documents {
 		if document.Sequence != formatSequence(int64(index)+1) {
-			return nil, errors.New("cosmosdb: stored append sequence has a gap or duplicate")
+			return nil, errors.New("azurecosmos: stored append sequence has a gap or duplicate")
 		}
 		decoded, err := history.DecodeMessages([]byte(document.Messages))
 		if err != nil {
-			return nil, fmt.Errorf("cosmosdb: decode messages: %w", err)
+			return nil, fmt.Errorf("azurecosmos: decode messages: %w", err)
 		}
 		messages = append(messages, decoded...)
 	}
 	if formatSequence(int64(len(documents))) != conversation.LastSequence {
-		return nil, errors.New("cosmosdb: stored append snapshot is incomplete")
+		return nil, errors.New("azurecosmos: stored append snapshot is incomplete")
 	}
 	return messages, nil
 }
@@ -316,7 +316,7 @@ func (s *Store) Clear(ctx context.Context, id history.ConversationID) error {
 		}
 		body, err := jsonv2.Marshal(conversation.close())
 		if err != nil {
-			return fmt.Errorf("cosmosdb: encode closure: %w", err)
+			return fmt.Errorf("azurecosmos: encode closure: %w", err)
 		}
 		transaction := s.container.NewTransactionalBatch(partition)
 		if exists {
@@ -347,7 +347,7 @@ func (s *Store) removeClosedPayloads(ctx context.Context, id history.Conversatio
 		for pager.More() {
 			response, err := pager.NextPage(ctx)
 			if err != nil {
-				return fmt.Errorf("cosmosdb: clear closed payloads: %w", err)
+				return fmt.Errorf("azurecosmos: clear closed payloads: %w", err)
 			}
 			items = response.Items
 			if len(items) > 0 {
@@ -360,13 +360,13 @@ func (s *Store) removeClosedPayloads(ctx context.Context, id history.Conversatio
 		for _, item := range items {
 			var itemID string
 			if err := jsonv2.Unmarshal(item, &itemID); err != nil {
-				return fmt.Errorf("cosmosdb: decode closed payload ID: %w", err)
+				return fmt.Errorf("azurecosmos: decode closed payload ID: %w", err)
 			}
 			if !strings.HasPrefix(itemID, appendDocumentPrefix) || len(itemID) == len(appendDocumentPrefix) {
-				return errors.New("cosmosdb: invalid closed payload ID")
+				return errors.New("azurecosmos: invalid closed payload ID")
 			}
 			if _, err := s.container.DeleteItem(ctx, partition, itemID, strongItemOptions()); err != nil && responseStatus(err) != http.StatusNotFound {
-				return fmt.Errorf("cosmosdb: delete closed payload: %w", err)
+				return fmt.Errorf("azurecosmos: delete closed payload: %w", err)
 			}
 		}
 	}
@@ -383,16 +383,16 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 	for pager.More() {
 		response, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("cosmosdb: list conversations: %w", err)
+			return nil, fmt.Errorf("azurecosmos: list conversations: %w", err)
 		}
 		for _, item := range response.Items {
 			var value string
 			if err := jsonv2.Unmarshal(item, &value); err != nil {
-				return nil, fmt.Errorf("cosmosdb: decode conversation ID: %w", err)
+				return nil, fmt.Errorf("azurecosmos: decode conversation ID: %w", err)
 			}
 			id, err := history.NewConversationID(value)
 			if err != nil {
-				return nil, fmt.Errorf("cosmosdb: invalid stored conversation ID: %w", err)
+				return nil, fmt.Errorf("azurecosmos: invalid stored conversation ID: %w", err)
 			}
 			ids = append(ids, id)
 		}

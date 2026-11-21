@@ -15,7 +15,7 @@ use (
 	./eval/trajectory
 	./examples
 	./historystores/cassandra
-	./historystores/cosmosdb
+	./historystores/azurecosmos
 	./historystores/mongodb
 	./historystores/neo4j
 	./historystores/postgres

@@ -1,4 +1,4 @@
-// Package cosmosdb stores history in an Azure Cosmos DB for NoSQL container.
+// Package azurecosmos stores history in an Azure Cosmos DB for NoSQL container.
 //
 // The container must use /conversation_id as its hash partition key and its
 // account must support Strong consistency. NewStore verifies both conditions
@@ -24,4 +24,4 @@
 // Reads pin the initial sequence and recheck closure, so concurrent appends or
 // cleanup cannot expose a partial batch or a partially cleared conversation.
 // The Store does not close its caller-owned ContainerClient.
-package cosmosdb
+package azurecosmos

@@ -1,4 +1,4 @@
-module github.com/Tangerg/scope/historystores/cosmosdb
+module github.com/Tangerg/scope/historystores/azurecosmos
 
 go 1.27.4
 

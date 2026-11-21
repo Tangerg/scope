@@ -1,4 +1,4 @@
-package cosmosdb
+package azurecosmos
 
 import (
 	"errors"

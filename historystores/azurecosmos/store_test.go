@@ -1,4 +1,4 @@
-package cosmosdb_test
+package azurecosmos_test
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/core/history/storetest"
-	"github.com/Tangerg/scope/historystores/cosmosdb"
+	"github.com/Tangerg/scope/historystores/azurecosmos"
 )
 
 type nativeItem struct {
@@ -79,7 +79,7 @@ func (c *cosmosPeer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	if request.Method == http.MethodGet && request.URL.Path == "/dbs/test/colls/history" {
 		path := c.partitionPath
 		if path == "" {
-			path = cosmosdb.PartitionKeyPath
+			path = azurecosmos.PartitionKeyPath
 		}
 		fmt.Fprintf(writer, `{"id":"history","_rid":"container","partitionKey":{"kind":"Hash","paths":[%q]}}`, path)
 		return
@@ -347,9 +347,9 @@ func testContainer(t *testing.T, peer *cosmosPeer) *azcosmos.ContainerClient {
 	return container
 }
 
-func testStore(t *testing.T, peer *cosmosPeer) *cosmosdb.Store {
+func testStore(t *testing.T, peer *cosmosPeer) *azurecosmos.Store {
 	t.Helper()
-	store, err := cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{Container: testContainer(t, peer)})
+	store, err := azurecosmos.NewStore(t.Context(), azurecosmos.StoreConfig{Container: testContainer(t, peer)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func namedBatch(t *testing.T, id history.AppendID, texts ...string) history.Batc
 }
 
 func TestNewStoreRequiresVerifiedContainerCapabilities(t *testing.T) {
-	if _, err := cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{}); err == nil {
+	if _, err := azurecosmos.NewStore(t.Context(), azurecosmos.StoreConfig{}); err == nil {
 		t.Fatal("nil container accepted")
 	}
 	for _, test := range []struct {
@@ -384,8 +384,8 @@ func TestNewStoreRequiresVerifiedContainerCapabilities(t *testing.T) {
 			peer := newPeer(t)
 			peer.partitionPath = test.path
 			peer.rejectStrong = test.strong
-			store, err := cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{Container: testContainer(t, peer)})
-			if store != nil || !errors.Is(err, cosmosdb.ErrIncompatibleContainer) {
+			store, err := azurecosmos.NewStore(t.Context(), azurecosmos.StoreConfig{Container: testContainer(t, peer)})
+			if store != nil || !errors.Is(err, azurecosmos.ErrIncompatibleContainer) {
 				t.Fatalf("store=%v error=%v", store, err)
 			}
 		})
