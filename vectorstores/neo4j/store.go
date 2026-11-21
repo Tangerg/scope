@@ -179,7 +179,8 @@ func (s *Store) createConstraint(ctx context.Context) error {
 
 func (s *Store) verify(ctx context.Context) error {
 	_, err := s.transact(ctx, neo4j.AccessModeRead, func(tx neo4j.ManagedTransaction) (any, error) {
-		result, err := tx.Run(ctx, "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties WHERE name=$binding AND type = 'UNIQUENESS' AND entityType = 'NODE' AND labelsOrTypes = [$label] AND properties = [$property] RETURN count(*) AS count", map[string]any{"binding": s.constraintName(), "label": s.label, "property": s.idProperty})
+		query := fmt.Sprintf("SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties WHERE name = $%s AND type = 'UNIQUENESS' AND entityType = 'NODE' AND labelsOrTypes = [$%s] AND properties = [$%s] RETURN count(*) AS %s", bindingParam, labelParam, propertyParam, countColumn)
+		result, err := tx.Run(ctx, query, map[string]any{bindingParam: s.constraintName(), labelParam: s.label, propertyParam: s.idProperty})
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +188,7 @@ func (s *Store) verify(ctx context.Context) error {
 		if err != nil {
 			return nil, err
 		}
-		count, ok := record.Get("count")
+		count, ok := record.Get(countColumn)
 		if !ok || count != int64(1) {
 			return nil, fmt.Errorf("neo4j: missing uniqueness constraint bound to the requested space and width: %w", vectorstore.ErrIncompatibleSpace)
 		}
@@ -240,7 +241,7 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 		vectors = append(vectors, r.Values)
 		ids = append(ids, r.Document.ID)
 	}
-	query := fmt.Sprintf("UNWIND $rows AS row MERGE (n:%s {%s: row[$idProperty]}) SET n = row", quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
+	query := fmt.Sprintf("UNWIND $%s AS row MERGE (n:%s {%s: row[$%s]}) SET n = row", rowsParam, quoteIdentifier(s.label), quoteIdentifier(s.idProperty), idPropertyParam)
 	submitted := false
 	ack, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
 		// The native function owns metric-specific vector validity, including cosine's nonzero norm.
@@ -249,7 +250,7 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 		}
 		for batch := range slices.Chunk(rows, transactionBatchSize) {
 			submitted = true
-			result, err := tx.Run(ctx, query, map[string]any{"rows": batch, "idProperty": s.idProperty})
+			result, err := tx.Run(ctx, query, map[string]any{rowsParam: batch, idPropertyParam: s.idProperty})
 			if err != nil {
 				return nil, err
 			}
@@ -287,12 +288,61 @@ type storedNode struct {
 	elementID string
 }
 
+// Cypher parameter names and result columns bind each statement to the Go code
+// that supplies or reads them; a statement refers to a parameter as "$" plus
+// its name. Row keys name the members of an UNWIND row.
+const (
+	bindingParam           = "binding"
+	labelParam             = "label"
+	propertyParam          = "property"
+	rowsParam              = "rows"
+	idPropertyParam        = "idProperty"
+	embeddingPropertyParam = "embeddingProperty"
+	readLimitParam         = "readLimit"
+	queryParam             = "query"
+	idsParam               = "ids"
+	countColumn            = "count"
+	propertiesColumn       = "properties"
+	elementIDColumn        = "elementID"
+	selfScoreColumn        = "selfScore"
+	positionColumn         = "position"
+	scoreColumn            = "score"
+	positionRowKey         = "position"
+	embeddingRowKey        = "embedding"
+)
+
 func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
-	raw, _ := record.Get("properties")
+	raw, _ := record.Get(propertiesColumn)
 	props, ok := raw.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("neo4j: stored properties have type %T", raw)
 	}
+	doc, err := s.decodeDocument(props)
+	if err != nil {
+		return nil, err
+	}
+	vector, err := s.decodeVector(doc.ID, props[s.embeddingProperty])
+	if err != nil {
+		return nil, err
+	}
+	elementID, _ := record.Get(elementIDColumn)
+	handle, ok := elementID.(string)
+	if !ok || handle == "" {
+		return nil, errors.New("neo4j: missing node element ID")
+	}
+	score, _ := record.Get(selfScoreColumn)
+	value, ok := score.(float64)
+	if !ok {
+		return nil, fmt.Errorf("neo4j: native vector validity score has type %T", score)
+	}
+	if err := vectorstore.Score(value).Validate(); err != nil {
+		return nil, err
+	}
+	return &storedNode{document: doc, vector: vector, elementID: handle}, nil
+}
+
+// decodeDocument admits exactly the configured properties as one document.
+func (s *Store) decodeDocument(props map[string]any) (*document.Document, error) {
 	for name := range props {
 		if name != s.idProperty && name != s.textProperty && name != s.metadataProperty && name != s.embeddingProperty {
 			return nil, fmt.Errorf("neo4j: node has unexpected property %q", name)
@@ -312,38 +362,30 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
-	rawVector, ok := props[s.embeddingProperty].([]any)
+	return doc, nil
+}
+
+// decodeVector admits a stored embedding of the bound width.
+func (s *Store) decodeVector(id string, raw any) ([]float64, error) {
+	items, ok := raw.([]any)
 	if !ok {
-		return nil, fmt.Errorf("neo4j: node %q has invalid embedding type %T", id, props[s.embeddingProperty])
+		return nil, fmt.Errorf("neo4j: node %q has invalid embedding type %T", id, raw)
 	}
-	vector := make([]float64, len(rawVector))
-	for i, item := range rawVector {
+	if len(items) != s.dimensions || len(items) == 0 {
+		return nil, errors.New("neo4j: stored vector width mismatch")
+	}
+	vector := make([]float64, len(items))
+	for i, item := range items {
 		value, isFloat := item.(float64)
 		if !isFloat {
 			return nil, fmt.Errorf("neo4j: node %q embedding[%d] has type %T, want FLOAT", id, i, item)
 		}
 		vector[i] = value
 	}
-	if len(vector) != s.dimensions || len(vector) == 0 {
-		return nil, errors.New("neo4j: stored vector width mismatch")
-	}
 	if err := corevector.Coordinates[float64](vector).Validate(); err != nil {
 		return nil, err
 	}
-	elementID, _ := record.Get("elementID")
-	handle, ok := elementID.(string)
-	if !ok || handle == "" {
-		return nil, errors.New("neo4j: missing node element ID")
-	}
-	score, _ := record.Get("selfScore")
-	value, ok := score.(float64)
-	if !ok {
-		return nil, fmt.Errorf("neo4j: native vector validity score has type %T", score)
-	}
-	if err := vectorstore.Score(value).Validate(); err != nil {
-		return nil, err
-	}
-	return &storedNode{document: doc, vector: vector, elementID: handle}, nil
+	return vector, nil
 }
 
 func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, predicate filter.Predicate, lock bool, meter *vectorstore.ScanMeter, readLimit int) ([]*storedNode, error) {
@@ -353,8 +395,9 @@ func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, pr
 		// the native transaction retains that lock through validation and deletion.
 		lockClause = fmt.Sprintf(" SET n.%s = n.%s", quoteIdentifier(s.idProperty), quoteIdentifier(s.idProperty))
 	}
-	query := fmt.Sprintf("MATCH (n:%s) WITH n LIMIT $readLimit %s WITH n, properties(n) AS stored RETURN elementId(n) AS elementID, stored AS properties, vector.similarity.%s(stored[$embeddingProperty], stored[$embeddingProperty]) AS selfScore", quoteIdentifier(s.label), lockClause, s.similarity)
-	result, err := tx.Run(ctx, query, map[string]any{"embeddingProperty": s.embeddingProperty, "readLimit": readLimit})
+	query := fmt.Sprintf("MATCH (n:%s) WITH n LIMIT $%s %s WITH n, properties(n) AS stored RETURN elementId(n) AS %s, stored AS %s, vector.similarity.%s(stored[$%s], stored[$%s]) AS %s",
+		quoteIdentifier(s.label), readLimitParam, lockClause, elementIDColumn, propertiesColumn, s.similarity, embeddingPropertyParam, embeddingPropertyParam, selfScoreColumn)
+	result, err := tx.Run(ctx, query, map[string]any{embeddingPropertyParam: s.embeddingProperty, readLimitParam: readLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +405,7 @@ func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, pr
 	seen := make(map[string]struct{})
 	for result.Next(ctx) {
 		record := result.Record()
-		props, _ := record.Get("properties")
+		props, _ := record.Get(propertiesColumn)
 		properties, _ := props.(map[string]any)
 		var bytes int64
 		for k, v := range properties {
@@ -374,7 +417,7 @@ func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, pr
 				bytes += 8 * int64(len(value))
 			}
 		}
-		id, _ := record.Get("elementID")
+		id, _ := record.Get(elementIDColumn)
 		if handle, ok := id.(string); ok {
 			bytes += int64(len(handle))
 		}
@@ -404,19 +447,20 @@ func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, pr
 }
 
 func (s *Store) scoreVectors(ctx context.Context, tx neo4j.ManagedTransaction, vectors [][]float64, queryVector []float64) ([]vectorstore.Score, error) {
-	operand := "row.embedding"
+	operand := "row." + embeddingRowKey
 	if queryVector != nil {
-		operand = "$query"
+		operand = "$" + queryParam
 	}
-	query := fmt.Sprintf("UNWIND $rows AS row RETURN row.position AS position, vector.similarity.%s(row.embedding, %s) AS score", s.similarity, operand)
+	query := fmt.Sprintf("UNWIND $%s AS row RETURN row.%s AS %s, vector.similarity.%s(row.%s, %s) AS %s",
+		rowsParam, positionRowKey, positionColumn, s.similarity, embeddingRowKey, operand, scoreColumn)
 	scores := make([]vectorstore.Score, len(vectors))
 	for start := 0; start < len(vectors); start += transactionBatchSize {
 		end := min(start+transactionBatchSize, len(vectors))
 		rows := make([]map[string]any, end-start)
 		for i := start; i < end; i++ {
-			rows[i-start] = map[string]any{"position": int64(i - start), "embedding": vectors[i]}
+			rows[i-start] = map[string]any{positionRowKey: int64(i - start), embeddingRowKey: vectors[i]}
 		}
-		result, err := tx.Run(ctx, query, map[string]any{"rows": rows, "query": queryVector})
+		result, err := tx.Run(ctx, query, map[string]any{rowsParam: rows, queryParam: queryVector})
 		if err != nil {
 			return nil, err
 		}
@@ -424,12 +468,12 @@ func (s *Store) scoreVectors(ctx context.Context, tx neo4j.ManagedTransaction, v
 		count := 0
 		for result.Next(ctx) {
 			record := result.Record()
-			raw, _ := record.Get("position")
+			raw, _ := record.Get(positionColumn)
 			position, ok := raw.(int64)
 			if !ok || position < 0 || position >= int64(len(rows)) || seen[position] {
 				return nil, errors.New("neo4j: invalid or duplicate native score position")
 			}
-			raw, _ = record.Get("score")
+			raw, _ = record.Get(scoreColumn)
 			value, ok := raw.(float64)
 			if !ok {
 				return nil, fmt.Errorf("neo4j: native score has type %T, want FLOAT", raw)
@@ -543,9 +587,9 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		for i, node := range nodes {
 			handles[i] = node.elementID
 		}
-		query := fmt.Sprintf("MATCH (n:%s) WHERE elementId(n) IN $ids DETACH DELETE n", quoteIdentifier(s.label))
+		query := fmt.Sprintf("MATCH (n:%s) WHERE elementId(n) IN $%s DETACH DELETE n", quoteIdentifier(s.label), idsParam)
 		for batch := range slices.Chunk(handles, transactionBatchSize) {
-			result, runErr := tx.Run(ctx, query, map[string]any{"ids": batch})
+			result, runErr := tx.Run(ctx, query, map[string]any{idsParam: batch})
 			if runErr != nil {
 				return nil, runErr
 			}
@@ -566,9 +610,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err != nil || len(ids) == 0 {
 		return err
 	}
-	query := fmt.Sprintf("MATCH (n:%s) WHERE n.%s IN $ids DETACH DELETE n", quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
+	query := fmt.Sprintf("MATCH (n:%s) WHERE n.%s IN $%s DETACH DELETE n", quoteIdentifier(s.label), quoteIdentifier(s.idProperty), idsParam)
 	_, err = s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
-		result, runErr := tx.Run(ctx, query, map[string]any{"ids": ids})
+		result, runErr := tx.Run(ctx, query, map[string]any{idsParam: ids})
 		if runErr != nil {
 			return nil, runErr
 		}
