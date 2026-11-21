@@ -193,6 +193,7 @@ func (m Middleware) start(
 	}
 	spanCtx, span := m.tracer.Start(ctx, name,
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attrs...),
 	)
 	return spanCtx, vectorStoreObservation{
@@ -213,16 +214,17 @@ type vectorStoreObservation struct {
 }
 
 func (v vectorStoreObservation) finish(err error) {
+	finishedAt := time.Now()
 	metricAttributes := v.metricAttributes
 	if err != nil {
 		errorType := errortelemetry.Classify(err)
-		errortelemetry.Record(v.span, errorType)
+		errortelemetry.Record(v.span, errorType, trace.WithTimestamp(finishedAt))
 		metricAttributes = append(metricAttributes, errorType)
 	}
-	v.span.End()
+	v.span.End(trace.WithTimestamp(finishedAt))
 	v.middleware.duration.Record(
 		v.ctx,
-		time.Since(v.startedAt).Seconds(),
+		finishedAt.Sub(v.startedAt).Seconds(),
 		metric.WithAttributes(metricAttributes...),
 	)
 }

@@ -164,6 +164,26 @@ func TestAppendPreservesTheBackendReceipt(t *testing.T) {
 	}
 }
 
+func TestSpanAndDurationMeasureOneInterval(t *testing.T) {
+	middleware, rig := newHistoryMiddleware(t)
+	if _, err := middleware.Store(&historyRecorder{}).Read(t.Context(), "conversation"); err != nil {
+		t.Fatal(err)
+	}
+	span := rig.spans.Ended()[0]
+	want := span.EndTime().Sub(span.StartTime()).Seconds()
+	for _, scope := range collectMetrics(t, rig.reader).ScopeMetrics {
+		for _, value := range scope.Metrics {
+			if histogram, ok := value.Data.(metricdata.Histogram[float64]); ok && value.Name == "chat_history.operation.duration" {
+				if got := histogram.DataPoints[0].Sum; got != want {
+					t.Fatalf("duration = %v, span interval = %v", got, want)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("duration metric was not recorded")
+}
+
 func TestMetricsClassifyWrappedCancellationByCause(t *testing.T) {
 	middleware, rig := newHistoryMiddleware(t)
 	want := fmt.Errorf("history interrupted: %w", context.Canceled)

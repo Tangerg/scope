@@ -140,6 +140,7 @@ func (m Middleware) start(
 	attrs = append(attrs, extra...)
 	spanCtx, span := m.tracer.Start(ctx, operation.spanName(),
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attrs...),
 	)
 	return spanCtx, historyObservation{
@@ -160,16 +161,17 @@ type historyObservation struct {
 }
 
 func (h historyObservation) finish(err error) {
+	finishedAt := time.Now()
 	metricAttributes := h.metricAttributes
 	if err != nil {
 		errorType := errortelemetry.Classify(err)
-		errortelemetry.Record(h.span, errorType)
+		errortelemetry.Record(h.span, errorType, trace.WithTimestamp(finishedAt))
 		metricAttributes = append(metricAttributes, errorType)
 	}
-	h.span.End()
+	h.span.End(trace.WithTimestamp(finishedAt))
 	h.middleware.duration.Record(
 		h.ctx,
-		time.Since(h.startedAt).Seconds(),
+		finishedAt.Sub(h.startedAt).Seconds(),
 		metric.WithAttributes(metricAttributes...),
 	)
 }
