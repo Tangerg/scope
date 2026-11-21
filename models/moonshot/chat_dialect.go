@@ -56,9 +56,17 @@ type ChatRequestOptions struct {
 	Partial          *bool     `json:"partial,omitzero"`
 }
 
-func (c ChatRequestOptions) ValidateFor(options corechat.Options) error {
-	if c.Partial != nil && *c.Partial && options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
-		return errors.New("partial cannot be combined with JSON output mode")
+// ValidateFor admits these options for request, whose final assistant message
+// a partial prefix belongs to.
+func (c ChatRequestOptions) ValidateFor(request *corechat.Request) error {
+	options := request.Options
+	if c.Partial != nil {
+		if !finalAssistantTextPrefix(request.Messages) {
+			return errors.New("partial requires a final assistant text prefix")
+		}
+		if *c.Partial && options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
+			return errors.New("partial cannot be combined with JSON output mode")
+		}
 	}
 	model := options.Model
 	if c.Thinking != nil {
@@ -91,8 +99,10 @@ func (c ChatRequestOptions) ValidateFor(options corechat.Options) error {
 		if options.ReasoningEffort != "" {
 			return fmt.Errorf("model %q does not accept reasoning_effort", model)
 		}
-		if c.Thinking != nil && (c.Thinking.Type != ThinkingEnabled || c.Thinking.Keep != ThinkingKeepAll) {
-			return fmt.Errorf("model %q only accepts thinking {type:%q, keep:%q}", model, ThinkingEnabled, ThinkingKeepAll)
+		// These models always preserve thinking, so an omitted keep already
+		// means "all".
+		if c.Thinking != nil && c.Thinking.Type != ThinkingEnabled {
+			return fmt.Errorf("model %q only accepts thinking type %q", model, ThinkingEnabled)
 		}
 	case ModelK26:
 		if options.ReasoningEffort != "" {
@@ -107,7 +117,7 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 	if err != nil {
 		return fmt.Errorf("moonshot: extension %q: %w", RequestExtensionKey, err)
 	}
-	if err := options.ValidateFor(source.Options); err != nil {
+	if err := options.ValidateFor(source); err != nil {
 		return fmt.Errorf("moonshot: extension %q: %w", RequestExtensionKey, err)
 	}
 	if options.Thinking != nil {
@@ -126,19 +136,23 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 		}
 	}
 	if options.Partial != nil {
-		if len(source.Messages) == 0 || source.Messages[len(source.Messages)-1].Role != corechat.RoleAssistant {
-			return errors.New("moonshot: partial requires a final assistant text prefix")
-		}
-		for _, part := range source.Messages[len(source.Messages)-1].Parts {
-			if part.Kind != corechat.PartText {
-				return errors.New("moonshot: partial requires a final assistant text prefix")
-			}
-		}
 		if err := target.SetFinalAssistantExtraField(partialMessageField, *options.Partial); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func finalAssistantTextPrefix(messages []corechat.Message) bool {
+	if len(messages) == 0 || messages[len(messages)-1].Role != corechat.RoleAssistant {
+		return false
+	}
+	for _, part := range messages[len(messages)-1].Parts {
+		if part.Kind != corechat.PartText {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {

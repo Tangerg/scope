@@ -107,3 +107,27 @@ func TestChatRejectsK2ThinkingOptionsForK3(t *testing.T) {
 		t.Fatal("Call succeeded; want model-specific validation error")
 	}
 }
+
+func TestThinkingRulesFollowEachKimiModel(t *testing.T) {
+	user := corechat.NewUserMessage(corechat.NewTextPart("hello"))
+	for _, test := range []struct {
+		name     string
+		model    string
+		thinking moonshot.Thinking
+		effort   corechat.ReasoningEffort
+		valid    bool
+	}{
+		{name: "code preserves thinking without keep", model: moonshot.ModelK27Code, thinking: moonshot.Thinking{Type: moonshot.ThinkingEnabled}, valid: true},
+		{name: "code refuses disabled thinking", model: moonshot.ModelK27Code, thinking: moonshot.Thinking{Type: moonshot.ThinkingDisabled}},
+		{name: "K2.6 may disable thinking", model: moonshot.ModelK26, thinking: moonshot.Thinking{Type: moonshot.ThinkingDisabled}, valid: true},
+		{name: "K2.6 refuses reasoning effort", model: moonshot.ModelK26, thinking: moonshot.Thinking{Type: moonshot.ThinkingEnabled}, effort: "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := &corechat.Request{Messages: []corechat.Message{user}, Options: corechat.Options{Model: test.model, ReasoningEffort: test.effort}}
+			err := moonshot.ChatRequestOptions{Thinking: &test.thinking}.ValidateFor(request)
+			if (err == nil) != test.valid {
+				t.Fatalf("ValidateFor = %v, want valid %t", err, test.valid)
+			}
+		})
+	}
+}
