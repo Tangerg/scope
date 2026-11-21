@@ -313,9 +313,8 @@ func TestProtocolToolCompletionPreservesProviderOutcome(t *testing.T) {
 				t.Fatalf("Stream finish = %s, want %s", streamed.Output.FinishReason, tc.want)
 			}
 			for _, complete := range []*corechat.Response{response, streamed} {
-				native, found, err := complete.Metadata.Extra.Decode[genai.FinishReason]("google/native_finish_reason")
-				if err != nil || !found || native != tc.reason {
-					t.Fatalf("native reason = %s, found %v, error %v", native, found, err)
+				if native := complete.Metadata.NativeFinishReason; native != string(tc.reason) {
+					t.Fatalf("native reason = %s, want %s", native, tc.reason)
 				}
 			}
 		})

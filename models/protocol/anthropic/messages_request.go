@@ -49,7 +49,6 @@ const (
 	RequestExtensionKey          = ProviderID + "/request"
 	protocolReasoningKindKey     = "anthropic/reasoning_kind"
 	protocolReasoningProviderKey = "anthropic/reasoning_provider"
-	protocolNativeStopReasonKey  = "anthropic/native_stop_reason"
 	protocolStopSequenceKey      = "anthropic/stop_sequence"
 	protocolUsageKey             = "anthropic/usage"
 	inlineDocumentDigestPrefix   = "urn:sha256:"

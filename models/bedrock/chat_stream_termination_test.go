@@ -62,8 +62,8 @@ func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete() = %v, want nil", err)
 	}
-	if terminal.FinishReason != corechat.FinishReasonStop {
-		t.Fatalf("FinishReason = %q, want %q", terminal.FinishReason, corechat.FinishReasonStop)
+	if terminal.FinishReason != corechat.FinishReasonStop || terminal.Metadata.NativeFinishReason != string(types.StopReasonEndTurn) {
+		t.Fatalf("FinishReason = %q (native %q), want %q", terminal.FinishReason, terminal.Metadata.NativeFinishReason, corechat.FinishReasonStop)
 	}
 }
 

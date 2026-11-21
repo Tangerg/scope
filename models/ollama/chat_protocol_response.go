@@ -17,10 +17,9 @@ const (
 	// ResponseExtensionKey preserves the complete official Ollama response (or
 	// the current official stream chunk), including log probabilities and image
 	// output that Core does not normalize.
-	ResponseExtensionKey        = Provider + "/response"
-	protocolNativeDoneReasonKey = "ollama/native_done_reason"
-	protocolDurationsKey        = "ollama/durations_ns"
-	protocolMetricsKey          = "ollama/metrics"
+	ResponseExtensionKey = Provider + "/response"
+	protocolDurationsKey = "ollama/durations_ns"
+	protocolMetricsKey   = "ollama/metrics"
 )
 
 type protocolResponseMapper struct {
@@ -109,11 +108,7 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 	}
 	if response.Done {
 		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
-		if response.DoneReason != "" {
-			if err := mapped.Metadata.Extra.Set(protocolNativeDoneReasonKey, response.DoneReason); err != nil {
-				return nil, err
-			}
-		}
+		mapped.Metadata.NativeFinishReason = response.DoneReason
 	}
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("ollama: mapped response delta: %w", err)

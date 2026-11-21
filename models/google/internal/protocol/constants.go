@@ -32,7 +32,6 @@ const (
 	toolUsePromptTokensMetadataSuffix             = "/tool_use_prompt_tokens"
 	modelVersionMetadataSuffix                    = "/model_version"
 	promptFeedbackMetadataSuffix                  = "/prompt_feedback"
-	nativeFinishReasonMetadataSuffix              = "/native_finish_reason"
 	safetyRatingsMetadataSuffix                   = "/safety_ratings"
 	finishMessageMetadataSuffix                   = "/finish_message"
 	embeddingTokenCountMetadataSuffix             = "/token_count"

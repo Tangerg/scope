@@ -126,7 +126,8 @@ func TestResponsesDoneMessageCanBeIncomplete(t *testing.T) {
 	model := newResponsesModel(t, server.URL, "model")
 	request := newResponsesChatRequest(t)
 	response, err := model.Call(t.Context(), request)
-	if err != nil || response == nil || response.Output.Text() != "partial" || response.Output.FinishReason != chat.FinishReasonLength {
+	if err != nil || response == nil || response.Output.Text() != "partial" || response.Output.FinishReason != chat.FinishReasonLength ||
+		response.Metadata.NativeFinishReason != "max_output_tokens" {
 		t.Fatalf("Call = %+v, %v", response, err)
 	}
 	streamed, err := chat.Collect(model.Stream(t.Context(), request))

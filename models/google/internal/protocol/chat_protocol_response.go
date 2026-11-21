@@ -119,9 +119,7 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
 	if isProtocolStopReason(candidate.FinishReason) {
-		if err := response.Metadata.Extra.Set(protocolKey(p.provider, nativeFinishReasonMetadataSuffix), candidate.FinishReason); err != nil {
-			return err
-		}
+		response.Metadata.NativeFinishReason = string(candidate.FinishReason)
 	}
 	if len(candidate.SafetyRatings) > 0 {
 		if err := response.Metadata.Extra.Set(protocolKey(p.provider, safetyRatingsMetadataSuffix), candidate.SafetyRatings); err != nil {
@@ -336,7 +334,7 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 	// ("stopped because of using an unsupported language", not a policy
 	// withholding), so none has a portable match. OTHER and IMAGE_OTHER are
 	// unspecified by Gemini itself, which is what Core's Other already means.
-	// Every one of them keeps its provider value under native_finish_reason.
+	// Every one of them keeps its provider value as the native finish reason.
 	default:
 		return corechat.FinishReasonOther
 	}

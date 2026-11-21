@@ -16,7 +16,6 @@ import (
 const (
 	CompatibleRequestExtensionSuffix = "/openai_request"
 	CompatibleStreamExtensionSuffix  = "/openai_stream_chunk"
-	nativeFinishReasonSuffix         = "/native_finish_reason"
 )
 
 const (

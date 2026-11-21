@@ -25,11 +25,10 @@ const (
 	// ChatMessageStopExtensionKey preserves the terminal provider outcome and native fields.
 	ChatMessageStopExtensionKey = Provider + "/message_stop"
 	// ChatMetadataExtensionKey preserves provider usage, metrics, and trace data.
-	ChatMetadataExtensionKey  = Provider + "/metadata"
-	chatReasoningKindKey      = "bedrock/reasoning_kind"
-	chatReasoningText         = "reasoning_text"
-	chatReasoningRedacted     = "redacted_content"
-	chatNativeFinishReasonKey = "bedrock/native_finish_reason"
+	ChatMetadataExtensionKey = Provider + "/metadata"
+	chatReasoningKindKey     = "bedrock/reasoning_kind"
+	chatReasoningText        = "reasoning_text"
+	chatReasoningRedacted    = "redacted_content"
 )
 
 // ChatRequestOptions carries serializable Bedrock Converse fields that have no

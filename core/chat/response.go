@@ -18,6 +18,10 @@ var ErrInvalidResponse = errors.New("chat: invalid response")
 type ResponseMetadata struct {
 	ID    string `json:"id,omitempty"`
 	Model string `json:"model,omitempty"`
+	// NativeFinishReason is the provider's own terminal reason that the
+	// portable FinishReason classifies, so the distinctions a classification
+	// erases stay readable without knowing each provider's vocabulary.
+	NativeFinishReason string `json:"native_finish_reason,omitempty"`
 	// Usage is nil when token accounting was not reported. A non-nil zero
 	// value records an explicitly reported zero total.
 	Usage     *Usage       `json:"usage,omitzero"`
@@ -41,6 +45,9 @@ func (r *ResponseMetadata) validate() error {
 	if r.ID != "" && strings.TrimSpace(r.ID) != r.ID {
 		return fmt.Errorf("%w: response metadata ID must not have surrounding whitespace", ErrInvalidResponse)
 	}
+	if !utf8.ValidString(r.NativeFinishReason) || strings.TrimSpace(r.NativeFinishReason) != r.NativeFinishReason {
+		return fmt.Errorf("%w: native finish reason must be trimmed UTF-8", ErrInvalidResponse)
+	}
 	if r.Usage != nil {
 		if err := r.Usage.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
@@ -58,6 +65,9 @@ func (r *ResponseMetadata) mergeValidated(src ResponseMetadata) {
 	}
 	if src.Model != "" {
 		r.Model = src.Model
+	}
+	if src.NativeFinishReason != "" {
+		r.NativeFinishReason = src.NativeFinishReason
 	}
 	if src.Usage != nil {
 		r.Usage = new(src.Usage.Clone())

@@ -20,6 +20,7 @@ func responsesTerminalDelta(response *responses.Response, extensionKey string, i
 		return nil, err
 	}
 	metadata := identity.metadata()
+	metadata.NativeFinishReason = responsesNativeFinishReason(response)
 	metadata.Usage, err = responsesUsage(response.Usage)
 	if err != nil {
 		return nil, err
@@ -32,6 +33,15 @@ func responsesTerminalDelta(response *responses.Response, extensionKey string, i
 		return nil, err
 	}
 	return delta, nil
+}
+
+// An incomplete response names why in its incomplete details; every other
+// terminal response is named by its status alone.
+func responsesNativeFinishReason(response *responses.Response) string {
+	if response.Status == responses.ResponseStatusIncomplete {
+		return response.IncompleteDetails.Reason
+	}
+	return string(response.Status)
 }
 
 func responsesFinishReason(response *responses.Response) (corechat.FinishReason, error) {

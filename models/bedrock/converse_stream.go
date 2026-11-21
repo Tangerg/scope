@@ -207,11 +207,7 @@ func (c *converseStream) complete(delta *corechat.ResponseDelta) (*corechat.Resp
 		return nil, fmt.Errorf("bedrock: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
 	delta.FinishReason = mapProtocolStopReason(c.stopReason)
-	if delta.FinishReason == corechat.FinishReasonOther {
-		if err := delta.Metadata.Extra.Set(chatNativeFinishReasonKey, string(c.stopReason)); err != nil {
-			return nil, err
-		}
-	}
+	delta.Metadata.NativeFinishReason = string(c.stopReason)
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("bedrock: terminal stream response: %w", err)
 	}

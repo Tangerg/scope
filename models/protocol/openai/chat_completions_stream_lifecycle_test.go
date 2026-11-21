@@ -60,19 +60,23 @@ func TestStreamAcceptsAudioExpiryAndUsageAfterFinish(t *testing.T) {
 	}
 }
 
-// Other erases which terminal state the provider reported, so the provider's
-// own word must survive on the response.
-func TestStreamPreservesNativeFinishReasonBehindOther(t *testing.T) {
-	adapter := newLifecycleStreamModel(t, []string{
-		`{"index":0,"delta":{"content":"answer"},"finish_reason":"insufficient_system_resource"}`,
-	})
-	response, err := adapter.Call(t.Context(), newToolStreamRequest(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	native, found, err := response.Metadata.Extra.Decode[string]("test/native_finish_reason")
-	if response.Output.FinishReason != corechat.FinishReasonOther || err != nil || !found || native != "insufficient_system_resource" {
-		t.Fatalf("finish = %q, native = %q (found %t, error %v)", response.Output.FinishReason, native, found, err)
+// A classification erases which terminal state the provider reported, so the
+// provider's own word must survive on the response.
+func TestStreamPreservesNativeFinishReason(t *testing.T) {
+	for native, want := range map[string]corechat.FinishReason{
+		"insufficient_system_resource": corechat.FinishReasonOther,
+		"stop":                         corechat.FinishReasonStop,
+	} {
+		adapter := newLifecycleStreamModel(t, []string{
+			`{"index":0,"delta":{"content":"answer"},"finish_reason":"` + native + `"}`,
+		})
+		response, err := adapter.Call(t.Context(), newToolStreamRequest(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.Output.FinishReason != want || response.Metadata.NativeFinishReason != native {
+			t.Fatalf("finish = %q, native = %q, want %q behind %q", response.Output.FinishReason, response.Metadata.NativeFinishReason, native, want)
+		}
 	}
 }
 

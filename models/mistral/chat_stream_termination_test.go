@@ -115,10 +115,9 @@ func TestStreamPublishesFinishOnLastDeltaAfterTailUsage(t *testing.T) {
 			want := corechat.FinishReasonStop
 			if reason == "error" {
 				want = corechat.FinishReasonOther
-				native, found, decodeErr := response.Metadata.Extra.Decode[string]("mistral/native_finish_reason")
-				if decodeErr != nil || !found || native != reason {
-					t.Fatalf("terminal native reason = %q, found %v, error %v", native, found, decodeErr)
-				}
+			}
+			if native := response.Metadata.NativeFinishReason; native != reason {
+				t.Fatalf("terminal native reason = %q, want %q", native, reason)
 			}
 			if response.Text() != "answer" || response.Output.FinishReason != want || response.Metadata.Usage.OutputTokens != 12 {
 				t.Fatalf("aggregated response = %#v", response)

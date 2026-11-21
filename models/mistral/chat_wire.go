@@ -81,7 +81,8 @@ const (
 
 // normalized names error explicitly, though it lands on Other like an
 // unrecognized value: it is a value Mistral's client declares, not one this
-// adapter has failed to classify. preserveNative keeps both distinguishable.
+// adapter has failed to classify. The native finish reason keeps both
+// distinguishable.
 func (f finishReason) normalized() corechat.FinishReason {
 	switch f {
 	case "":
@@ -97,18 +98,6 @@ func (f finishReason) normalized() corechat.FinishReason {
 	default:
 		return corechat.FinishReasonOther
 	}
-}
-
-// preserveNative records the provider's own finish reason whenever the
-// portable one is Other, so the distinction Other erases stays available.
-func (f finishReason) preserveNative(metadata *corechat.ResponseMetadata) error {
-	if f.normalized() != corechat.FinishReasonOther {
-		return nil
-	}
-	if err := metadata.Extra.Set(nativeFinishReasonKey, string(f)); err != nil {
-		return fmt.Errorf("mistral: record native finish reason: %w", err)
-	}
-	return nil
 }
 
 type responseFormat struct {

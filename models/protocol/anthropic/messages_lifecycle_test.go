@@ -67,7 +67,8 @@ func TestMessagesRequireCompleteTerminalSequence(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || response.Text() != "answer" || response.Output.FinishReason != corechat.FinishReasonStop {
+			if err != nil || response.Text() != "answer" || response.Output.FinishReason != corechat.FinishReasonStop ||
+				response.Metadata.NativeFinishReason != string(anthropicsdk.StopReasonEndTurn) {
 				t.Fatalf("Call = %#v, %v", response, err)
 			}
 			wantTokens := int64(1)

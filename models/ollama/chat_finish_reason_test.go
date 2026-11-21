@@ -53,11 +53,8 @@ func TestToolCompletionPreservesProviderOutcome(t *testing.T) {
 			if streamed.Output.FinishReason != tc.want {
 				t.Fatalf("Stream finish = %s, want %s", streamed.Output.FinishReason, tc.want)
 			}
-			if tc.reason != "" {
-				reason, found, err := streamed.Metadata.Extra.Decode[string](protocolNativeDoneReasonKey)
-				if err != nil || !found || reason != tc.reason {
-					t.Fatalf("native reason = %s, found %v, error %v", reason, found, err)
-				}
+			if native := streamed.Metadata.NativeFinishReason; native != tc.reason {
+				t.Fatalf("native reason = %s, want %s", native, tc.reason)
 			}
 		})
 	}

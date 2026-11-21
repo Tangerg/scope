@@ -407,11 +407,7 @@ func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEve
 		}
 		p.finish = finish
 	}
-	if event.Delta.StopReason != "" {
-		if err := response.Metadata.Extra.Set(protocolNativeStopReasonKey, event.Delta.StopReason); err != nil {
-			return err
-		}
-	}
+	response.Metadata.NativeFinishReason = string(event.Delta.StopReason)
 	if err := p.usage.observe(event.JSON.Usage.Raw(), response.Metadata); err != nil {
 		return err
 	}

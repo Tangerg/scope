@@ -9,8 +9,8 @@ import (
 // non-empty value; ResponseDelta uses the empty value before termination.
 type FinishReason string
 
-// Adapters classify the outcome using these reasons and preserve the native
-// reason in ResponseMetadata.Extra.
+// Adapters classify the outcome using these reasons and preserve the
+// provider's own reason in ResponseMetadata.NativeFinishReason.
 const (
 	// FinishReasonStop means the model reached a natural stop condition,
 	// including one of the caller's stop sequences. The output is complete.

@@ -40,21 +40,19 @@ var (
 )
 
 type openAIStreamState struct {
-	identity streamIdentity
-	parts    streamPartIndexes[chatStreamPart]
-	tools    map[int64]openAIStreamTool
-	sequence uint64
-	dialect  responseDialect
-	chunkKey string
-	// nativeFinishKey preserves the provider's own reason when it maps to Other.
-	nativeFinishKey string
-	refused         bool
-	stopReason      string
-	params          *openaisdk.ChatCompletionNewParams
-	audioID         string
-	audio           []byte
-	transcript      strings.Builder
-	hasText         bool
+	identity   streamIdentity
+	parts      streamPartIndexes[chatStreamPart]
+	tools      map[int64]openAIStreamTool
+	sequence   uint64
+	dialect    responseDialect
+	chunkKey   string
+	refused    bool
+	stopReason string
+	params     *openaisdk.ChatCompletionNewParams
+	audioID    string
+	audio      []byte
+	transcript strings.Builder
+	hasText    bool
 }
 
 func newOpenAIStreamState(dialect chatDialect) *openAIStreamState {
@@ -63,10 +61,9 @@ func newOpenAIStreamState(dialect chatDialect) *openAIStreamState {
 		response = dialect.response()
 	}
 	return &openAIStreamState{
-		tools:           make(map[int64]openAIStreamTool),
-		dialect:         response,
-		chunkKey:        protocolStreamChunkExtensionKey(dialect.Provider),
-		nativeFinishKey: dialect.Provider + nativeFinishReasonSuffix,
+		tools:    make(map[int64]openAIStreamTool),
+		dialect:  response,
+		chunkKey: protocolStreamChunkExtensionKey(dialect.Provider),
 	}
 }
 
@@ -155,11 +152,7 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 		delta.Parts = append(delta.Parts, o.delta(chatStreamAudio, corechat.NewMediaDelta(value)))
 	}
 	delta.FinishReason = normalizeFinishReason(o.stopReason)
-	if delta.FinishReason == corechat.FinishReasonOther {
-		if err := delta.Metadata.Extra.Set(o.nativeFinishKey, o.stopReason); err != nil {
-			return nil, err
-		}
-	}
+	delta.Metadata.NativeFinishReason = o.stopReason
 	if o.refused {
 		delta.FinishReason = corechat.FinishReasonRefusal
 	}

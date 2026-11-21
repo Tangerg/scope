@@ -29,9 +29,9 @@
 // Finish reasons. Mistral's own client types the field as stop, length,
 // model_length, error or an unrecognized string. error and an unrecognized
 // value both map to [chat.FinishReasonOther] — a known terminal state with
-// no portable match — and the provider's own word for it rides along on the
-// output, so an errored generation stays distinguishable from a provider
-// limit.
+// no portable match — and every response carries the provider's own word as
+// [chat.ResponseMetadata].NativeFinishReason, so an errored generation stays
+// distinguishable from a provider limit.
 //
 // See https://docs.mistral.ai/ for the full API reference.
 // Core Options.ReasoningEffort is the only request control for reasoning

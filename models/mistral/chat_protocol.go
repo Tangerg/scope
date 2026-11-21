@@ -34,7 +34,6 @@ const (
 const (
 	RequestExtensionKey     = Provider + "/request"
 	streamChunkExtensionKey = Provider + "/chunk"
-	nativeFinishReasonKey   = "mistral/native_finish_reason"
 	mistralStreamDone       = "[DONE]"
 	mistralStreamMaxBytes   = 16 << 20
 	responseFormatField     = "response_format"

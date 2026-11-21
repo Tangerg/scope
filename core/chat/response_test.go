@@ -295,3 +295,25 @@ func TestResponseMetadataDistinguishesMissingAndZeroUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseMetadataNativeFinishReasonSurvivesStreamingAndRejectsUntrimmedText(t *testing.T) {
+	var accumulator chat.ResponseAccumulator
+	for _, delta := range []*chat.ResponseDelta{
+		{Metadata: &chat.ResponseMetadata{NativeFinishReason: "end_turn"}},
+		{Metadata: &chat.ResponseMetadata{ID: "response"}, FinishReason: chat.FinishReasonStop},
+	} {
+		if err := accumulator.Add(delta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, err := accumulator.Response()
+	if err != nil || response.Metadata.NativeFinishReason != "end_turn" {
+		t.Fatalf("accumulated response = %+v, %v", response, err)
+	}
+	for _, native := range []string{" end_turn", "\xff"} {
+		invalid := &chat.Response{Output: assistantResult("answer"), Metadata: &chat.ResponseMetadata{NativeFinishReason: native}}
+		if err := invalid.Validate(); !errors.Is(err, chat.ErrInvalidResponse) {
+			t.Fatalf("native finish reason %q error = %v", native, err)
+		}
+	}
+}
