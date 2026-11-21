@@ -47,9 +47,12 @@
 // [NewSteerSignal] accepts unaddressed steering at a safe conversation boundary.
 // Steering received during model or tool work applies before the next model
 // request; it neither cancels that work nor answers a tool's addressed Wait.
-// Completion validators and context policies execute in discardable Steps and
-// must be deterministic, bounded, side-effect-free, and cancellation-aware.
-// External context processing belongs in its dispatcher Effect instead.
+// [ContextPolicy], [CompletionValidator] and the [ContextPreparer] trigger run in
+// discardable, replayed Steps: they take no context and must be deterministic,
+// bounded and side-effect-free. Context processing that needs I/O runs as the
+// preparer's own Effect, only when its trigger holds. Models and Tools are
+// decorated before they are configured, with chat.Wrap and tool.Wrap; the agent
+// module overview maps every extension seam and when each one runs.
 //
 // [HistoryProjection] reads settled tool rounds and delegate attributions from
 // the complete history that run.Runtime.History reads, because a checkpoint does

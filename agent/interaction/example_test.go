@@ -79,3 +79,36 @@ func exampleValue[T any](value T, err error) T {
 	}
 	return value
 }
+
+func ExampleContextPolicy() {
+	ctx := context.Background()
+	runtime := exampleValue(run.New(ctx, run.Config{Build: "example", Store: run.NewMemoryStore()}))
+	defer func() {
+		if err := runtime.Close(ctx); err != nil {
+			panic(err)
+		}
+	}()
+	// keepRecent retains the newest two messages. It is deterministic and
+	// bounded, so the Step replays it on recovery without repeating any work.
+	keepRecent := func(request *chat.Request) ([]chat.Message, error) {
+		return request.Messages[max(0, len(request.Messages)-2):], nil
+	}
+	assistant := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		return reply(fmt.Sprintf("answered from %d messages, the first %q", len(request.Messages), request.Messages[0].Text())), nil
+	})
+	program := exampleValue(interaction.Compile(runtime.Compiler(), interaction.Config{
+		Name: "example.recent", Description: "Answer from the most recent messages.",
+		// Revision identifies keepRecent, a callback the Step replays.
+		Revision:      "recent/2",
+		Model:         interaction.CallModel(assistant),
+		ContextPolicy: keepRecent,
+	}))
+	input := interaction.Input{Messages: []chat.Message{
+		chat.NewUserMessage(chat.NewTextPart("one")),
+		chat.NewUserMessage(chat.NewTextPart("two")),
+		chat.NewUserMessage(chat.NewTextPart("three")),
+	}}
+	output := exampleValue(runtime.Run(ctx, program, input))
+	fmt.Println(output.ModelResponse.Text())
+	// Output: answered from 2 messages, the first "two"
+}
