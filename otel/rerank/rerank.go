@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
@@ -23,12 +22,12 @@ import (
 )
 
 const (
-	instrumentationName      = "github.com/Tangerg/scope/otel/rerank"
-	operationName            = "rerank"
-	documentCountKey         = attribute.Key("gen_ai.request.document.count")
-	errorTypeInvalidRequest  = "rerank.invalid_request"
-	errorTypeInvalidOptions  = "rerank.invalid_options"
-	errorTypeInvalidResponse = "rerank.invalid_response"
+	instrumentationName                                  = "github.com/Tangerg/scope/otel/rerank"
+	operationName            genaiconv.OperationNameAttr = "rerank"
+	documentCountKey                                     = attribute.Key("gen_ai.request.document.count")
+	errorTypeInvalidRequest                              = "rerank.invalid_request"
+	errorTypeInvalidOptions                              = "rerank.invalid_options"
+	errorTypeInvalidResponse                             = "rerank.invalid_response"
 )
 
 var (
@@ -64,6 +63,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	client, err := instrument.NewClient(instrument.ClientConfig{
 		InstrumentationName: instrumentationName, Provider: config.Provider,
 		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+		ClassifyError: errorTypeAttribute,
 	})
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
@@ -85,83 +85,38 @@ func (m Middleware) Call(next corererank.Model) corererank.Model {
 		return corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, err })
 	}
 	return corererank.ModelFunc(func(ctx context.Context, request *corererank.Request) (response *corererank.Response, err error) {
-		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.client.Tracer, m.spanName(request), m.requestAttributes(request)...)
+		spanCtx, operation := m.client.StartOperation(ctx, operationName, requestModel(request), requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
-			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
+			m.finish(spanCtx, operation, response, observedError)
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
 	})
 }
 
-func (m Middleware) spanName(request *corererank.Request) string {
-	if request == nil || request.Options.Model == "" {
-		return operationName
-	}
-	return operationName + " " + request.Options.Model
-}
-
-func (m Middleware) requestAttributes(request *corererank.Request) []attribute.KeyValue {
-	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.client.Provider),
-	}
+func requestModel(request *corererank.Request) string {
 	if request == nil {
-		return attributes
+		return ""
 	}
-	if request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	return append(attributes, documentCountKey.Int(len(request.Documents)))
+	return request.Options.Model
 }
 
-func (m Middleware) finish(
-	ctx context.Context,
-	span trace.Span,
-	request *corererank.Request,
-	response *corererank.Response,
-	err error,
-	startedAt, finishedAt time.Time,
-) {
-	defer span.End(trace.WithTimestamp(finishedAt))
-	attributes := m.metricAttributes(request, response)
-	if response != nil && response.Metadata != nil && response.Metadata.Model != "" {
-		span.SetAttributes(semconv.GenAIResponseModel(response.Metadata.Model))
+func requestAttributes(request *corererank.Request) []attribute.KeyValue {
+	if request == nil {
+		return nil
 	}
-	if response != nil && response.Metadata != nil && response.Metadata.Usage != nil &&
-		response.Metadata.Usage.InputTokens >= 0 {
-		span.SetAttributes(semconv.GenAIUsageInputTokensKey.Int64(response.Metadata.Usage.InputTokens))
-		m.tokens.Record(ctx, response.Metadata.Usage.InputTokens,
-			genaiconv.OperationNameAttr(operationName),
-			genaiconv.ProviderNameAttr(m.client.Provider),
-			genaiconv.TokenTypeInput,
-			attributes...,
-		)
-	}
-
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(ctx, m.client.Logger, errorType, finishedAt)
-		attributes = append(attributes, errorType)
-	}
-	operation := genaiconv.OperationNameAttr(operationName)
-	m.client.Duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), operation, genaiconv.ProviderNameAttr(m.client.Provider), attributes...)
+	return []attribute.KeyValue{documentCountKey.Int(len(request.Documents))}
 }
 
-func (m Middleware) metricAttributes(request *corererank.Request, response *corererank.Response) []attribute.KeyValue {
-	var attributes []attribute.KeyValue
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	model := ""
+func (m Middleware) finish(ctx context.Context, operation *instrument.Operation, response *corererank.Response, err error) {
 	if response != nil && response.Metadata != nil {
-		model = response.Metadata.Model
+		operation.ObserveResponseModel(response.Metadata.Model)
+		if usage := response.Metadata.Usage; usage != nil && usage.InputTokens >= 0 {
+			operation.SetAttributes(semconv.GenAIUsageInputTokensKey.Int64(usage.InputTokens))
+			operation.RecordTokens(ctx, m.tokens, genaiconv.TokenTypeInput, usage.InputTokens)
+		}
 	}
-	if model != "" {
-		attributes = append(attributes, semconv.GenAIResponseModel(model))
-	}
-	return attributes
+	operation.End(ctx, err)
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {

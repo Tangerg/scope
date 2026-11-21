@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
 	"go.opentelemetry.io/otel/trace"
 
@@ -22,11 +20,11 @@ import (
 )
 
 const (
-	instrumentationName      = "github.com/Tangerg/scope/otel/moderation"
-	operationName            = "moderate"
-	errorTypeInvalidRequest  = "moderation.invalid_request"
-	errorTypeInvalidOptions  = "moderation.invalid_options"
-	errorTypeInvalidResponse = "moderation.invalid_response"
+	instrumentationName                                  = "github.com/Tangerg/scope/otel/moderation"
+	operationName            genaiconv.OperationNameAttr = "moderate"
+	errorTypeInvalidRequest                              = "moderation.invalid_request"
+	errorTypeInvalidOptions                              = "moderation.invalid_options"
+	errorTypeInvalidResponse                             = "moderation.invalid_response"
 )
 
 var (
@@ -63,6 +61,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	client, err := instrument.NewClient(instrument.ClientConfig{
 		InstrumentationName: instrumentationName, Provider: config.Provider,
 		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+		ClassifyError: errorTypeAttribute,
 	})
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
@@ -80,76 +79,30 @@ func (m Middleware) Call(next coremoderation.Model) coremoderation.Model {
 		return coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) { return nil, err })
 	}
 	return coremoderation.ModelFunc(func(ctx context.Context, request *coremoderation.Request) (response *coremoderation.Response, err error) {
-		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.client.Tracer, m.spanName(request), m.requestAttributes(request)...)
+		spanCtx, operation := m.client.StartOperation(ctx, operationName, requestModel(request), requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
-			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
+			if response != nil && response.Metadata != nil {
+				operation.ObserveResponseModel(response.Metadata.Model)
+			}
+			operation.End(spanCtx, observedError)
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
 	})
 }
 
-func (m Middleware) spanName(request *coremoderation.Request) string {
-	if request == nil || request.Options.Model == "" {
-		return operationName
-	}
-	return operationName + " " + request.Options.Model
-}
-
-func (m Middleware) requestAttributes(request *coremoderation.Request) []attribute.KeyValue {
-	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.client.Provider),
-	}
+func requestModel(request *coremoderation.Request) string {
 	if request == nil {
-		return attributes
+		return ""
 	}
-	if request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	return append(attributes, instrument.InputCountKey.Int(len(request.Texts)))
+	return request.Options.Model
 }
 
-func (m Middleware) finish(
-	ctx context.Context,
-	span trace.Span,
-	request *coremoderation.Request,
-	response *coremoderation.Response,
-	err error,
-	startedAt, finishedAt time.Time,
-) {
-	defer span.End(trace.WithTimestamp(finishedAt))
-	attributes := m.metricAttributes(request, response)
-	if response != nil && response.Metadata != nil && response.Metadata.Model != "" {
-		span.SetAttributes(semconv.GenAIResponseModel(response.Metadata.Model))
+func requestAttributes(request *coremoderation.Request) []attribute.KeyValue {
+	if request == nil {
+		return nil
 	}
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(ctx, m.client.Logger, errorType, finishedAt)
-		attributes = append(attributes, errorType)
-	}
-	m.client.Duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
-		genaiconv.OperationNameAttr(operationName), genaiconv.ProviderNameAttr(m.client.Provider), attributes...,
-	)
-}
-
-func (m Middleware) metricAttributes(
-	request *coremoderation.Request,
-	response *coremoderation.Response,
-) []attribute.KeyValue {
-	var attributes []attribute.KeyValue
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	model := ""
-	if response != nil && response.Metadata != nil {
-		model = response.Metadata.Model
-	}
-	if model != "" {
-		attributes = append(attributes, semconv.GenAIResponseModel(model))
-	}
-	return attributes
+	return []attribute.KeyValue{instrument.InputCountKey.Int(len(request.Texts))}
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {

@@ -19,17 +19,16 @@ import (
 
 	corespeech "github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/otel/errortelemetry"
-	"github.com/Tangerg/scope/otel/internal/genaimetric"
 	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
 const (
-	instrumentationName      = "github.com/Tangerg/scope/otel/speech"
-	operationName            = "synthesize_speech"
-	errorTypeInvalidRequest  = "speech.invalid_request"
-	errorTypeInvalidOptions  = "speech.invalid_options"
-	errorTypeInvalidResponse = "speech.invalid_response"
-	errorTypeInvalidStreamer = "otel.speech.invalid_streamer"
+	instrumentationName                                  = "github.com/Tangerg/scope/otel/speech"
+	operationName            genaiconv.OperationNameAttr = "synthesize_speech"
+	errorTypeInvalidRequest                              = "speech.invalid_request"
+	errorTypeInvalidOptions                              = "speech.invalid_options"
+	errorTypeInvalidResponse                             = "speech.invalid_response"
+	errorTypeInvalidStreamer                             = "otel.speech.invalid_streamer"
 )
 
 var (
@@ -55,9 +54,8 @@ func (m MiddlewareConfig) Validate() error {
 // Middleware observes synthesis metadata without recording input text, voice
 // names, or generated audio.
 type Middleware struct {
-	client        instrument.Client
-	firstChunk    genaiconv.ClientOperationTimeToFirstChunk
-	chunkInterval genaiconv.ClientOperationTimePerOutputChunk
+	client instrument.Client
+	timing instrument.ChunkTiming
 }
 
 // NewMiddleware snapshots provider identity and resolves nil OTel providers to
@@ -69,19 +67,16 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	client, err := instrument.NewClient(instrument.ClientConfig{
 		InstrumentationName: instrumentationName, Provider: config.Provider,
 		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+		ClassifyError: errorTypeAttribute,
 	})
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	firstChunk, err := genaiconv.NewClientOperationTimeToFirstChunk(client.Meter, genaimetric.DurationBuckets())
+	timing, err := instrument.NewChunkTiming(client.Meter)
 	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create first-chunk histogram: %w", ErrInvalidConfig, err)
+		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	chunkInterval, err := genaiconv.NewClientOperationTimePerOutputChunk(client.Meter, genaimetric.DurationBuckets())
-	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create chunk-interval histogram: %w", ErrInvalidConfig, err)
-	}
-	return Middleware{client: client, firstChunk: firstChunk, chunkInterval: chunkInterval}, nil
+	return Middleware{client: client, timing: timing}, nil
 }
 
 // Call instruments next without changing its response or error.
@@ -93,10 +88,10 @@ func (m Middleware) Call(next corespeech.Model) corespeech.Model {
 		return corespeech.ModelFunc(func(context.Context, *corespeech.Request) (*corespeech.Response, error) { return nil, err })
 	}
 	return corespeech.ModelFunc(func(ctx context.Context, request *corespeech.Request) (response *corespeech.Response, err error) {
-		ctx, observation := m.start(ctx, request, false)
-		defer errortelemetry.Finish(&err, func(observedError error) { observation.finish(observedError) })
+		ctx, operation := m.start(ctx, request, false)
+		defer errortelemetry.Finish(&err, func(observedError error) { operation.End(ctx, observedError) })
 		response, err = next.Call(ctx, request)
-		observation.observeResponse(response)
+		observeResponseModel(operation, response)
 		return response, err
 	})
 }
@@ -114,9 +109,9 @@ func (m Middleware) Stream(next corespeech.Streamer) corespeech.Streamer {
 	}
 	return corespeech.StreamerFunc(func(ctx context.Context, request *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
 		return func(yield func(*corespeech.Response, error) bool) {
-			spanCtx, observation := m.start(ctx, request, true)
+			spanCtx, operation := m.start(ctx, request, true)
 			var streamErr error
-			defer errortelemetry.Finish(&streamErr, func(observedError error) { observation.finish(observedError) })
+			defer errortelemetry.Finish(&streamErr, func(observedError error) { operation.End(spanCtx, observedError) })
 			sequence := next.Stream(spanCtx, request)
 			if sequence == nil {
 				streamErr = fmt.Errorf("%w: nil stream sequence", ErrInvalidStreamer)
@@ -124,7 +119,11 @@ func (m Middleware) Stream(next corespeech.Streamer) corespeech.Streamer {
 				return
 			}
 			for response, err := range sequence {
-				observation.observeChunk(response)
+				if response != nil {
+					receivedAt := time.Now()
+					observeResponseModel(operation, response)
+					operation.ObserveChunk(spanCtx, m.timing, receivedAt)
+				}
 				streamErr = err
 				keepGoing := yield(response, err)
 				if err != nil || !keepGoing {
@@ -136,118 +135,24 @@ func (m Middleware) Stream(next corespeech.Streamer) corespeech.Streamer {
 }
 
 func (m Middleware) validate() error {
-	if !m.client.Ready() || lo.IsNil(m.firstChunk.Inst()) || lo.IsNil(m.chunkInterval.Inst()) {
+	if !m.client.Ready() || !m.timing.Ready() {
 		return fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
 	return nil
 }
 
-func (m Middleware) start(ctx context.Context, request *corespeech.Request, streaming bool) (context.Context, observation) {
-	startedAt := time.Now()
-	attributes := append(m.requestAttributes(request), semconv.GenAIRequestStreamKey.Bool(streaming))
-	spanCtx, span := m.client.Tracer.Start(ctx, m.spanName(request),
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithTimestamp(startedAt),
-		trace.WithAttributes(attributes...),
-	)
-	return spanCtx, observation{
-		middleware: m,
-		ctx:        spanCtx,
-		span:       span,
-		startedAt:  startedAt,
-		request:    request,
+func (m Middleware) start(ctx context.Context, request *corespeech.Request, streaming bool) (context.Context, *instrument.Operation) {
+	model := ""
+	if request != nil {
+		model = request.Options.Model
 	}
+	return m.client.StartOperation(ctx, operationName, model, semconv.GenAIOutputTypeSpeech, semconv.GenAIRequestStreamKey.Bool(streaming))
 }
 
-func (m Middleware) spanName(request *corespeech.Request) string {
-	if request == nil || request.Options.Model == "" {
-		return operationName
+func observeResponseModel(operation *instrument.Operation, response *corespeech.Response) {
+	if response != nil && response.Metadata != nil {
+		operation.ObserveResponseModel(response.Metadata.Model)
 	}
-	return operationName + " " + request.Options.Model
-}
-
-func (m Middleware) requestAttributes(request *corespeech.Request) []attribute.KeyValue {
-	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.client.Provider),
-		semconv.GenAIOutputTypeSpeech,
-	}
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	return attributes
-}
-
-type observation struct {
-	middleware    Middleware
-	ctx           context.Context
-	span          trace.Span
-	startedAt     time.Time
-	request       *corespeech.Request
-	responseModel string
-	lastChunkAt   time.Time
-}
-
-func (o *observation) observeResponse(response *corespeech.Response) {
-	if response != nil && response.Metadata != nil && response.Metadata.Model != "" {
-		o.responseModel = response.Metadata.Model
-	}
-}
-
-func (o *observation) observeChunk(response *corespeech.Response) {
-	if response == nil {
-		return
-	}
-	arrivedAt := time.Now()
-	o.observeResponse(response)
-	attributes := o.middleware.metricAttributes(o.request, o.responseModel)
-	operation := genaiconv.OperationNameAttr(operationName)
-	provider := genaiconv.ProviderNameAttr(o.middleware.client.Provider)
-	if o.lastChunkAt.IsZero() {
-		elapsed := arrivedAt.Sub(o.startedAt).Seconds()
-		o.span.SetAttributes(semconv.GenAIResponseTimeToFirstChunk(elapsed))
-		o.middleware.firstChunk.Record(o.ctx, elapsed, operation, provider, attributes...)
-	} else {
-		o.middleware.chunkInterval.Record(o.ctx, arrivedAt.Sub(o.lastChunkAt).Seconds(), operation, provider, attributes...)
-	}
-	o.lastChunkAt = arrivedAt
-}
-
-func (o observation) finish(err error) {
-	finishedAt := time.Now()
-	attributes := o.middleware.metricAttributes(o.request, o.responseModel)
-	if o.responseModel != "" {
-		o.span.SetAttributes(semconv.GenAIResponseModel(o.responseModel))
-	}
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(o.span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(o.ctx, o.middleware.client.Logger, errorType, finishedAt)
-		attributes = append(attributes, errorType)
-	}
-	o.span.End(trace.WithTimestamp(finishedAt))
-	o.middleware.client.Duration.Record(
-		o.ctx,
-		finishedAt.Sub(o.startedAt).Seconds(),
-		genaiconv.OperationNameAttr(operationName),
-		genaiconv.ProviderNameAttr(o.middleware.client.Provider),
-		attributes...,
-	)
-}
-
-func (m Middleware) metricAttributes(
-	request *corespeech.Request,
-	responseModel string,
-) []attribute.KeyValue {
-	var attributes []attribute.KeyValue
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	model := responseModel
-	if model != "" {
-		attributes = append(attributes, semconv.GenAIResponseModel(model))
-	}
-	return attributes
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {

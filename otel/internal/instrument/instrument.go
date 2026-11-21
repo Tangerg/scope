@@ -1,13 +1,11 @@
 // Package instrument owns the rules every Scope instrumentation shares: which
 // OpenTelemetry providers it records through, how configured identities become
-// telemetry dimensions, and the attributes Scope defines beyond the semantic
-// conventions.
+// telemetry dimensions, the attributes Scope defines beyond the semantic
+// conventions, and how a GenAI client operation is recorded.
 package instrument
 
 import (
-	"context"
 	"strings"
-	"time"
 
 	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
@@ -50,16 +48,4 @@ func LoggerProvider(provider log.LoggerProvider) log.LoggerProvider {
 // system name, so equal identities produce one telemetry dimension.
 func Dimension(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
-}
-
-// StartClientSpan gives a client operation's span and duration measurement the
-// same start instant. Capability-specific attributes and completion stay local.
-func StartClientSpan(ctx context.Context, tracer trace.Tracer, name string, attributes ...attribute.KeyValue) (context.Context, trace.Span, time.Time) {
-	startedAt := time.Now()
-	spanCtx, span := tracer.Start(ctx, name,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithTimestamp(startedAt),
-		trace.WithAttributes(attributes...),
-	)
-	return spanCtx, span, startedAt
 }

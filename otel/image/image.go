@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
@@ -61,6 +60,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	client, err := instrument.NewClient(instrument.ClientConfig{
 		InstrumentationName: instrumentationName, Provider: config.Provider,
 		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+		ClassifyError: errorTypeAttribute,
 	})
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
@@ -78,53 +78,17 @@ func (m Middleware) Call(next coreimage.Model) coreimage.Model {
 		return coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) { return nil, err })
 	}
 	return coreimage.ModelFunc(func(ctx context.Context, request *coreimage.Request) (response *coreimage.Response, err error) {
-		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.client.Tracer, m.spanName(request), m.requestAttributes(request)...)
-		defer errortelemetry.Finish(&err, func(observedError error) {
-			finishedAt := time.Now()
-			defer span.End(trace.WithTimestamp(finishedAt))
-			metricAttributes := m.metricAttributes(request)
-			if observedError != nil {
-				errorType := errorTypeAttribute(observedError)
-				errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-				errortelemetry.EmitGenAIException(spanCtx, m.client.Logger, errorType, finishedAt)
-				metricAttributes = append(metricAttributes, errorType)
-			}
-			m.client.Duration.Record(spanCtx, finishedAt.Sub(startedAt).Seconds(),
-				genaiconv.OperationNameGenerateContent,
-				genaiconv.ProviderNameAttr(m.client.Provider),
-				metricAttributes...,
-			)
-		})
+		spanCtx, operation := m.client.StartOperation(ctx, genaiconv.OperationNameGenerateContent, requestModel(request), semconv.GenAIOutputTypeImage)
+		defer errortelemetry.Finish(&err, func(observedError error) { operation.End(spanCtx, observedError) })
 		return next.Call(spanCtx, request)
 	})
 }
 
-func (m Middleware) spanName(request *coreimage.Request) string {
-	if request == nil || request.Options.Model == "" {
-		return string(genaiconv.OperationNameGenerateContent)
+func requestModel(request *coreimage.Request) string {
+	if request == nil {
+		return ""
 	}
-	return string(genaiconv.OperationNameGenerateContent) + " " + request.Options.Model
-}
-
-func (m Middleware) requestAttributes(request *coreimage.Request) []attribute.KeyValue {
-	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameGenerateContent)),
-		semconv.GenAIOutputTypeImage,
-		semconv.GenAIProviderNameKey.String(m.client.Provider),
-	}
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	return attributes
-}
-
-func (m Middleware) metricAttributes(request *coreimage.Request) []attribute.KeyValue {
-	if request == nil || request.Options.Model == "" {
-		return nil
-	}
-	return []attribute.KeyValue{
-		semconv.GenAIRequestModel(request.Options.Model),
-	}
+	return request.Options.Model
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {

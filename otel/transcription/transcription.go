@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
@@ -22,11 +21,11 @@ import (
 )
 
 const (
-	instrumentationName      = "github.com/Tangerg/scope/otel/transcription"
-	operationName            = "transcribe"
-	errorTypeInvalidRequest  = "transcription.invalid_request"
-	errorTypeInvalidOptions  = "transcription.invalid_options"
-	errorTypeInvalidResponse = "transcription.invalid_response"
+	instrumentationName                                  = "github.com/Tangerg/scope/otel/transcription"
+	operationName            genaiconv.OperationNameAttr = "transcribe"
+	errorTypeInvalidRequest                              = "transcription.invalid_request"
+	errorTypeInvalidOptions                              = "transcription.invalid_options"
+	errorTypeInvalidResponse                             = "transcription.invalid_response"
 )
 
 var (
@@ -63,6 +62,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	client, err := instrument.NewClient(instrument.ClientConfig{
 		InstrumentationName: instrumentationName, Provider: config.Provider,
 		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+		ClassifyError: errorTypeAttribute,
 	})
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
@@ -82,74 +82,23 @@ func (m Middleware) Call(next coretranscription.Model) coretranscription.Model {
 		})
 	}
 	return coretranscription.ModelFunc(func(ctx context.Context, request *coretranscription.Request) (response *coretranscription.Response, err error) {
-		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.client.Tracer, m.spanName(request), m.requestAttributes(request)...)
+		spanCtx, operation := m.client.StartOperation(ctx, operationName, requestModel(request), semconv.GenAIOutputTypeText)
 		defer errortelemetry.Finish(&err, func(observedError error) {
-			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
+			if response != nil && response.Metadata != nil {
+				operation.ObserveResponseModel(response.Metadata.Model)
+			}
+			operation.End(spanCtx, observedError)
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
 	})
 }
 
-func (m Middleware) spanName(request *coretranscription.Request) string {
-	if request == nil || request.Options.Model == "" {
-		return operationName
+func requestModel(request *coretranscription.Request) string {
+	if request == nil {
+		return ""
 	}
-	return operationName + " " + request.Options.Model
-}
-
-func (m Middleware) requestAttributes(request *coretranscription.Request) []attribute.KeyValue {
-	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.client.Provider),
-		semconv.GenAIOutputTypeText,
-	}
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	return attributes
-}
-
-func (m Middleware) finish(
-	ctx context.Context,
-	span trace.Span,
-	request *coretranscription.Request,
-	response *coretranscription.Response,
-	err error,
-	startedAt, finishedAt time.Time,
-) {
-	defer span.End(trace.WithTimestamp(finishedAt))
-	attributes := m.metricAttributes(request, response)
-	if response != nil && response.Metadata != nil && response.Metadata.Model != "" {
-		span.SetAttributes(semconv.GenAIResponseModel(response.Metadata.Model))
-	}
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(ctx, m.client.Logger, errorType, finishedAt)
-		attributes = append(attributes, errorType)
-	}
-	m.client.Duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
-		genaiconv.OperationNameAttr(operationName), genaiconv.ProviderNameAttr(m.client.Provider), attributes...,
-	)
-}
-
-func (m Middleware) metricAttributes(
-	request *coretranscription.Request,
-	response *coretranscription.Response,
-) []attribute.KeyValue {
-	var attributes []attribute.KeyValue
-	if request != nil && request.Options.Model != "" {
-		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
-	}
-	model := ""
-	if response != nil && response.Metadata != nil {
-		model = response.Metadata.Model
-	}
-	if model != "" {
-		attributes = append(attributes, semconv.GenAIResponseModel(model))
-	}
-	return attributes
+	return request.Options.Model
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
