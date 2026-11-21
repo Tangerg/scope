@@ -19,7 +19,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "Neo4j"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "neo4j"
 
 const (
 	DefaultLabel             = "Document"

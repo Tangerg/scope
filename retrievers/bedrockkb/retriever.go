@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	Provider                 = "BedrockKnowledgeBase"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                 = "bedrockkb"
 	DefaultMaxResponseBytes  = int64(16 * 1024 * 1024)
 	nativeRequestIDHeader    = "X-Amzn-Requestid"
 	canonicalRequestIDHeader = "Request-Id"

@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	Provider      = "Qdrant"
+	// Provider is the stable backend name for host-side attribution.
+	Provider      = "qdrant"
 	contentField  = "content"
 	metadataField = "metadata_json"
 	termsField    = "metadata_terms"

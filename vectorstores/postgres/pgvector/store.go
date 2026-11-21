@@ -15,7 +15,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-const Provider = "PgVector"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "pgvector"
 
 const (
 	DefaultSchemaName     = "public"

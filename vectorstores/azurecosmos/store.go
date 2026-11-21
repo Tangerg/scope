@@ -20,7 +20,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "AzureCosmosDB"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "azurecosmos"
 
 var ErrIncompatibleContainer = errors.New("azurecosmos: container is incompatible")
 

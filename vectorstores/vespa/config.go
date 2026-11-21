@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	Provider                = "Vespa"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                = "vespa"
 	DefaultContentField     = "content"
 	DefaultEmbeddingField   = "embedding"
 	DefaultQueryTensorName  = "q"

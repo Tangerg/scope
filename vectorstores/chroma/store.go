@@ -20,7 +20,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "Chroma"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "chroma"
 
 // SpaceMetadataKey identifies the Host-provisioned encoder pairing in the
 // physical collection. The native dimension alone cannot establish this identity.

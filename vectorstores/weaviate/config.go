@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	Provider          = "Weaviate"
+	// Provider is the stable backend name for host-side attribution.
+	Provider          = "weaviate"
 	fieldContent      = "content"
 	fieldMetadata     = "metadata"
 	fieldTerms        = "metadataTerms"

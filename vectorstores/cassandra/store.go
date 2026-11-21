@@ -18,7 +18,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "Cassandra"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "cassandra"
 
 const (
 	DefaultKeyspaceName     = "scope"

@@ -18,7 +18,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "ClickHouse"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "clickhouse"
 
 const (
 	DefaultTableName       = "vector_store"

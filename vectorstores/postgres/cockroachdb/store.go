@@ -14,7 +14,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-const Provider = "CockroachDB"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "cockroachdb"
 
 const (
 	DefaultSchemaName     = "public"

@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	Provider              = "Milvus"
+	// Provider is the stable backend name for host-side attribution.
+	Provider              = "milvus"
 	fieldID               = "id"
 	fieldVector           = "vector"
 	fieldContent          = "content"

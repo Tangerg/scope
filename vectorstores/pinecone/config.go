@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	Provider            = "Pinecone"
+	// Provider is the stable backend name for host-side attribution.
+	Provider            = "pinecone"
 	vectorField         = "_values"
 	MaxTopK             = 10000
 	contentField        = "content"

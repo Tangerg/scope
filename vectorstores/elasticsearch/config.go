@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	Provider                = "Elasticsearch"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                = "elasticsearch"
 	nativeMaximumDimensions = 4096
 )
 

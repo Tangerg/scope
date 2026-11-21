@@ -18,7 +18,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "MariaDB"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "mariadb"
 
 const (
 	documentIDBytes       = 3072

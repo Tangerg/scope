@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	Provider                 = "AzureAISearch"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                 = "azureaisearch"
 	DefaultAPIVersion        = "2024-07-01"
 	DefaultIDField           = "id"
 	DefaultContentField      = "content"

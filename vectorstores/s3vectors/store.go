@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	Provider               = "S3Vectors"
+	// Provider is the stable backend name for host-side attribution.
+	Provider               = "s3vectors"
 	MaxTopK                = 10_000
 	MaxResultsPerQueryPage = 100
 	MaxVectorsPerWrite     = 500

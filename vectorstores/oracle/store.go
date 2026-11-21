@@ -28,7 +28,8 @@ const (
 	metadataColumnType  = "BLOB"
 )
 
-const Provider = "Oracle"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "oracle"
 
 const (
 	DefaultTableName       = "VECTOR_STORE"

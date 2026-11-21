@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	Provider               = "MongoDB"
+	// Provider is the stable backend name for host-side attribution.
+	Provider               = "mongodb"
 	DefaultVectorIndexName = "vector_index"
 	DefaultNumCandidates   = 200
 	MaxNumCandidates       = 10000

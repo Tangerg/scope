@@ -17,7 +17,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const Provider = "Couchbase"
+// Provider is the stable backend name for host-side attribution.
+const Provider = "couchbase"
 
 const (
 	DefaultScopeName = "_default"

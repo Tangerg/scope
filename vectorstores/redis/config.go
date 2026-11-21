@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	Provider              = "Redis"
+	// Provider is the stable backend name for host-side attribution.
+	Provider              = "redis"
 	DefaultIndexName      = "scope-vector-index"
 	contentField          = "content"
 	embeddingField        = "embedding"

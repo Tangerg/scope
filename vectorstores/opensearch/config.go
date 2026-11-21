@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	Provider                = "OpenSearch"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                = "opensearch"
 	nativeMaximumDimensions = 16000
 )
 

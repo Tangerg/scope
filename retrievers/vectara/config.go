@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	Provider                = "Vectara"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                = "vectara"
 	DefaultLimit            = 5
 	maximumResults          = 100
 	DefaultEndpoint         = "https://api.vectara.io"

@@ -26,7 +26,8 @@ import (
 )
 
 const (
-	Provider                = "Typesense"
+	// Provider is the stable backend name for host-side attribution.
+	Provider                = "typesense"
 	DefaultCollectionName   = "scope_vector_store"
 	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
 	MaxResultsPerPage       = 250
