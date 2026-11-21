@@ -28,7 +28,7 @@ var ErrChunkBudgetTooSmall = errors.New("etl: chunk token budget is too small")
 
 // ErrSearchBudgetExceeded means prefix search stopped before proving whether
 // a nonempty chunk fits.
-var ErrSearchBudgetExceeded = errors.New("etl: token window search budget exceeded")
+var ErrSearchBudgetExceeded = tokenwindow.ErrSearchBudgetExceeded
 
 // TokenSplitterConfig configures token-aware chunking. Zero sizing values use
 // documented defaults; negative values are rejected.
@@ -127,9 +127,6 @@ func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, e
 
 func (t *TokenSplitter) nextChunk(ctx context.Context, source string) (string, error) {
 	window, err := tokenwindow.Prefix(ctx, t.tokenizer, source, t.maxTokensPerChunk, t.maxSearchWork, strings.TrimSpace)
-	if errors.Is(err, tokenwindow.ErrSearchBudgetExceeded) {
-		return "", ErrSearchBudgetExceeded
-	}
 	if err != nil {
 		return "", fmt.Errorf("etl: select token window: %w", err)
 	}

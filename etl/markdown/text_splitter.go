@@ -381,9 +381,6 @@ func (t *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph str
 			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, t.maxChunks)
 		}
 		decoded, err := tokenwindow.Prefix(ctx, t.tokenizer, paragraph, t.maxTokensPerChunk, t.maxSearchWork, render)
-		if errors.Is(err, tokenwindow.ErrSearchBudgetExceeded) {
-			return nil, etl.ErrSearchBudgetExceeded
-		}
 		if err != nil {
 			return nil, fmt.Errorf("markdown splitter: select paragraph token window: %w", err)
 		}

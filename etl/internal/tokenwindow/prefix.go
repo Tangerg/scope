@@ -16,7 +16,8 @@ import (
 const initialProbeBytes = 4 << 10
 
 // ErrSearchBudgetExceeded means the search stopped without proving absence.
-var ErrSearchBudgetExceeded = errors.New("tokenwindow: search budget exceeded")
+// etl exports this value as its own sentinel, so callers match one error.
+var ErrSearchBudgetExceeded = errors.New("etl: token window search budget exceeded")
 
 // Prefix returns a lossless source prefix whose rendered text fits limit tokens.
 // Probe and final rendering are encoded independently because vocabulary
