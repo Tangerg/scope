@@ -29,7 +29,8 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapEmbeddingOptions(e.Provider, e.DefaultOptions)
+	return err
 }
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
@@ -70,25 +71,30 @@ const (
 )
 
 func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*openai.EmbeddingNewParams, error) {
-	fields, err := decodeRequestFields(req.Options.Extensions, e.provider+EmbeddingRequestExtensionSuffix, embeddingFieldModel, embeddingFieldInput, embeddingFieldDimensions)
+	params, err := mapEmbeddingOptions(e.provider, req.Options)
+	if err != nil {
+		return nil, err
+	}
+	params.Input = openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: req.Texts}
+	return params, nil
+}
+
+// mapEmbeddingOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapEmbeddingOptions(provider string, options embedding.Options) (*openai.EmbeddingNewParams, error) {
+	fields, err := decodeRequestFields(options.Extensions, provider+EmbeddingRequestExtensionSuffix, embeddingFieldModel, embeddingFieldInput, embeddingFieldDimensions)
 	if err != nil {
 		return nil, err
 	}
 	if format, set := fields[embeddingFieldEncodingFormat]; set && format != string(openai.EmbeddingNewParamsEncodingFormatFloat) {
 		return nil, fmt.Errorf("%w: openai: embedding encoding_format must be float for a Core embedding", errors.ErrUnsupported)
 	}
-	params := &openai.EmbeddingNewParams{}
+	params := &openai.EmbeddingNewParams{Model: options.Model}
 	params.SetExtraFields(fields)
-
-	params.Model = req.Options.Model
-	params.Input = openai.EmbeddingNewParamsInputUnion{
-		OfArrayOfStrings: req.Texts,
+	if options.Dimensions != nil {
+		params.Dimensions = openai.Int(*options.Dimensions)
 	}
-
-	if req.Options.Dimensions != nil {
-		params.Dimensions = openai.Int(*req.Options.Dimensions)
-	}
-
 	return params, nil
 }
 

@@ -28,19 +28,15 @@ func newResponsesRequestProjection(request *corechat.Request, defaults corechat.
 	if err != nil {
 		return nil, fmt.Errorf("openai responses: options: %w", err)
 	}
+	if err = dialect.validateOptions(options); err != nil {
+		return nil, err
+	}
+	native, err := dialect.requestExtension(options.Extensions)
+	if err != nil {
+		return nil, err
+	}
 	resolved := request.Clone()
 	resolved.Options = options
-	extensionKey := dialect.Provider + ResponsesRequestExtensionSuffix
-	if ownershipErr := rejectCoreOwnedResponsesExtension(options.Extensions, extensionKey); ownershipErr != nil {
-		return nil, ownershipErr
-	}
-	native, found, err := options.Extensions.Decode[responses.ResponseNewParams](extensionKey)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses: extension %q: %w", extensionKey, err)
-	}
-	if found && dialect.DisableRawRequestExtension {
-		return nil, fmt.Errorf("%s: raw Responses request extension is not supported", dialect.Provider)
-	}
 	return &responsesRequestProjection{request: resolved, dialect: dialect, native: native}, nil
 }
 
@@ -72,9 +68,6 @@ func (r *responsesRequestProjection) projectOptions() error {
 	if options.Model == "" {
 		return errors.New("openai responses: model is required in defaults or request options")
 	}
-	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil || len(options.Stop) != 0 {
-		return errors.New("openai responses: frequency_penalty, presence_penalty, top_k, and stop are not supported")
-	}
 	r.native.Model = shared.ResponsesModel(options.Model)
 	if options.MaxOutputTokens != nil {
 		r.native.MaxOutputTokens = openaisdk.Int(*options.MaxOutputTokens)
@@ -85,11 +78,7 @@ func (r *responsesRequestProjection) projectOptions() error {
 	if options.TopP != nil {
 		r.native.TopP = openaisdk.Float(*options.TopP)
 	}
-	effort, err := mapReasoningEffort(options.ReasoningEffort)
-	if err != nil {
-		return err
-	}
-	r.native.Reasoning.Effort = effort
+	r.native.Reasoning.Effort = openaisdk.ReasoningEffort(options.ReasoningEffort)
 	if options.OutputFormat != nil {
 		format, err := mapResponsesOutputFormat(options.OutputFormat)
 		if err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -27,6 +28,42 @@ type ResponsesDialect struct {
 }
 
 func (r ResponsesDialect) Validate() error { return metadata.ValidateExtensionNamespace(r.Provider) }
+
+// validateOptions admits the Core options the Responses API accepts. A binding
+// applies it to its defaults at construction and to every resolved request,
+// so defaults no request could send fail when they are configured.
+func (r ResponsesDialect) validateOptions(options corechat.Options) error {
+	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil || len(options.Stop) != 0 {
+		return errors.New("openai responses: frequency_penalty, presence_penalty, top_k, and stop are not supported")
+	}
+	if err := validateReasoningEffort(options.ReasoningEffort, openAIReasoningEfforts); err != nil {
+		return err
+	}
+	if options.OutputFormat != nil {
+		if _, err := mapResponsesOutputFormat(options.OutputFormat); err != nil {
+			return err
+		}
+	}
+	_, err := r.requestExtension(options.Extensions)
+	return err
+}
+
+// requestExtension returns the native request a caller supplied under the
+// provider's extension key; it may not carry a field the Core projection owns.
+func (r ResponsesDialect) requestExtension(extensions metadata.Extensions) (responses.ResponseNewParams, error) {
+	extensionKey := r.Provider + ResponsesRequestExtensionSuffix
+	if err := rejectCoreOwnedResponsesExtension(extensions, extensionKey); err != nil {
+		return responses.ResponseNewParams{}, err
+	}
+	native, found, err := extensions.Decode[responses.ResponseNewParams](extensionKey)
+	if err != nil {
+		return responses.ResponseNewParams{}, fmt.Errorf("openai responses: extension %q: %w", extensionKey, err)
+	}
+	if found && r.DisableRawRequestExtension {
+		return responses.ResponseNewParams{}, fmt.Errorf("%s: raw Responses request extension is not supported", r.Provider)
+	}
+	return native, nil
+}
 
 // CompatibleResponsesRequest exposes only provider-owned Responses controls.
 // BuiltInTools are appended to Core's function tools; a non-nil empty slice

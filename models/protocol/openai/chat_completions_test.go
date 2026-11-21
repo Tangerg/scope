@@ -179,6 +179,12 @@ func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := scopeopenai.NewChatCompletions(t.Context(), config, dialect)
+			if source == "defaults" {
+				if err == nil || !strings.Contains(err.Error(), "produces one output") {
+					t.Fatalf("NewChatCompletions error = %v; want output-count rejection", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -47,7 +47,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapImageOptions(i.Provider, i.DefaultOptions)
+	return err
 }
 
 var _ image.Model = (*ImageModel)(nil)
@@ -84,6 +85,18 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	if err != nil {
 		return nil, err
 	}
+	params, err := mapImageOptions(i.provider, effectiveOptions)
+	if err != nil {
+		return nil, err
+	}
+	params.Prompt = req.Prompt
+	return params, nil
+}
+
+// mapImageOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapImageOptions(provider string, effectiveOptions image.Options) (*openai.ImageGenerateParams, error) {
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions("openai: image", map[string]bool{
 		imageFieldNegativePrompt: effectiveOptions.NegativePrompt != "",
 		imageFieldSeed:           effectiveOptions.Seed != nil,
@@ -94,7 +107,7 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 		return nil, errors.New("openai: image: width and height must be set together")
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, i.provider+ImageRequestExtensionSuffix,
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, provider+ImageRequestExtensionSuffix,
 		imageFieldModel, imageFieldPrompt, imageFieldNegativePrompt, imageFieldWidth, imageFieldHeight,
 		imageFieldSeed, imageFieldOutputFormat, imageFieldSize, imageFieldStream, imageFieldPartialImages)
 	if err != nil {
@@ -104,7 +117,6 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	params.SetExtraFields(fields)
 
 	params.Model = effectiveOptions.Model
-	params.Prompt = req.Prompt
 
 	if effectiveOptions.OutputFormat != "" {
 		format, err := imageOutputFormat(effectiveOptions.OutputFormat)

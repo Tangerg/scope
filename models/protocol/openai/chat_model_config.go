@@ -25,7 +25,7 @@ func (c ChatModelConfig) Validate() error {
 		return err
 	}
 	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("openai: default options: %w", err)
+		return fmt.Errorf("openai: DefaultOptions: %w", err)
 	}
 	return nil
 }

@@ -43,7 +43,8 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapEmbeddingOptions(e.DefaultOptions)
+	return err
 }
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
@@ -70,7 +71,18 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequest, error) {
-	effectiveOptions := req.Options
+	apiReq, err := mapEmbeddingOptions(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	apiReq.Input = req.Texts
+	return apiReq, nil
+}
+
+// mapEmbeddingOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapEmbeddingOptions(effectiveOptions embedding.Options) (*embeddingRequest, error) {
 	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err
@@ -89,7 +101,6 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	}
 
 	apiReq.Model = effectiveOptions.Model
-	apiReq.Input = req.Texts
 	if apiReq.Task != nil {
 		if err := apiReq.Task.validate(apiReq.Model); err != nil {
 			return nil, err

@@ -226,28 +226,76 @@ type chatDialect struct {
 	response func() responseDialect
 }
 
-func (c chatDialect) ignores(option ChatOption) bool {
-	return slices.Contains(c.IgnoredOptions, option)
+// validateOptions admits the Core options this dialect's provider documents.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func (c chatDialect) validateOptions(options corechat.Options) error {
+	for _, option := range []struct {
+		name ChatOption
+		set  bool
+	}{
+		{ChatOptionFrequencyPenalty, options.FrequencyPenalty != nil},
+		{ChatOptionPresencePenalty, options.PresencePenalty != nil},
+		{ChatOptionReasoningEffort, options.ReasoningEffort != ""},
+		{ChatOptionTemperature, options.Temperature != nil},
+		{ChatOptionTopP, options.TopP != nil},
+	} {
+		// Sending a discarded option is indistinguishable, to the caller, from
+		// this adapter never having mapped it.
+		if option.set && slices.Contains(c.IgnoredOptions, option.name) {
+			return fmt.Errorf("openai: %s ignores %s, so setting it would have no effect", c.Provider, option.name)
+		}
+	}
+	if options.TopK != nil && !c.SupportsTopK {
+		return fmt.Errorf("openai: options.top_k is not supported by %s Chat Completions", c.Provider)
+	}
+	if limit := c.MaxTemperature; options.Temperature != nil && limit != nil && *options.Temperature > *limit {
+		return fmt.Errorf("openai: %s documents a temperature range up to %g, so %v is refused rather than sent out of range",
+			c.Provider, *limit, *options.Temperature)
+	}
+	// An effort is a model's word, so another provider's enum must not decide it.
+	efforts := c.ReasoningEfforts
+	if efforts == nil {
+		efforts = openAIReasoningEfforts
+	}
+	if err := validateReasoningEffort(options.ReasoningEffort, efforts); err != nil {
+		return err
+	}
+	if format := options.OutputFormat; format != nil {
+		if c.NativeOutputFormat != nil && !c.NativeOutputFormat(format.Type) {
+			return fmt.Errorf("%w: openai-compatible endpoint does not support %q", corechat.ErrUnsupportedOutputFormat, format.Type)
+		}
+		if _, err := mapChatOutputFormat(format); err != nil {
+			return err
+		}
+	}
+	_, err := c.requestExtensionFields(options.Extensions)
+	return err
 }
 
-// reasoningEffort admits effort from the provider's own vocabulary; an effort
-// is a model's word, so another provider's enum must not decide it.
-func (c chatDialect) reasoningEffort(effort corechat.ReasoningEffort) (openaisdk.ReasoningEffort, error) {
-	if c.ReasoningEfforts == nil {
-		return mapReasoningEffort(effort)
+// requestExtensionFields returns the raw OpenAI request fields a caller
+// supplied under the provider's extension key; none of them may be a field
+// the Core projection owns.
+func (c chatDialect) requestExtensionFields(extensions metadata.Extensions) (map[string]any, error) {
+	extensionKey := protocolRequestExtensionKey(c.Provider)
+	if c.DisableRawRequestExtension {
+		if _, supplied, err := extensions.Decode[any](extensionKey); err != nil {
+			return nil, err
+		} else if supplied {
+			return nil, fmt.Errorf("openai: extension %q is not supported by this provider", extensionKey)
+		}
+		return nil, nil
 	}
-	if effort != "" && !slices.Contains(c.ReasoningEfforts, effort) {
-		return "", fmt.Errorf("openai: %s options.reasoning_effort has unsupported value %q", c.Provider, effort)
+	fields, err := decodeRequestFields(extensions, extensionKey)
+	if err != nil {
+		return nil, err
 	}
-	return openaisdk.ReasoningEffort(effort), nil
-}
-
-// admit refuses a set option the provider documents as discarded.
-func (c chatDialect) admit(option ChatOption, set bool) error {
-	if set && c.ignores(option) {
-		return newIgnoredOptionError(c.Provider, option)
+	for name := range fields {
+		if err := validateChatExtraField(name); err != nil {
+			return nil, fmt.Errorf("openai: extension %q: %w", extensionKey, err)
+		}
 	}
-	return nil
+	return fields, nil
 }
 
 // ChatOption names one Core chat option by the OpenAI request field it travels

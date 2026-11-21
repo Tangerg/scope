@@ -64,6 +64,12 @@ func TestEmbeddingNativeEnumAdmission(t *testing.T) {
 					t.Fatal(err)
 				}
 				model, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults && test.invalidField != "" {
+					if err == nil || !strings.Contains(err.Error(), test.invalidField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -102,7 +108,14 @@ func TestEmbeddingAdmitsOnlyResolvedControls(t *testing.T) {
 	if err := options.Extensions.Set(cohere.EmbeddingRequestExtensionKey, json.RawMessage(`{"input_type":"scope-invalid-enum","truncate":"invalid"}`)); err != nil {
 		t.Fatal(err)
 	}
-	model, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+	config := cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options}
+	if _, err := cohere.NewEmbeddingModel(t.Context(), config); err == nil {
+		t.Fatal("construction admitted invalid default controls")
+	}
+	if err := config.DefaultOptions.Extensions.Set(cohere.EmbeddingRequestExtensionKey, json.RawMessage(`{"input_type":"search_document","truncate":"END"}`)); err != nil {
+		t.Fatal(err)
+	}
+	model, err := cohere.NewEmbeddingModel(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,6 +59,9 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
 	}
+	if _, _, err := e.DefaultOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey); err != nil {
+		return fmt.Errorf("mistral: extension %q: %w", EmbeddingRequestExtensionKey, err)
+	}
 	return nil
 }
 

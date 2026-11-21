@@ -130,16 +130,22 @@ func TestResponsesRejectsCoreOwnedExtensions(t *testing.T) {
 					request.Options = options
 				}
 				model, err := openai.NewResponses(t.Context(), config, testResponsesDialect())
+				if defaults {
+					if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("NewResponses = %v", err)
+					}
+					continue
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
 				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
-					t.Fatalf("defaults=%v: Call = %v", defaults, err)
+					t.Fatalf("Call = %v", err)
 				}
 				_, err = model.CountInputTokens(t.Context(), request)
 				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
-					t.Fatalf("defaults=%v: CountInputTokens = %v", defaults, err)
+					t.Fatalf("CountInputTokens = %v", err)
 				}
 			}
 		})

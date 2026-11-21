@@ -28,7 +28,8 @@ func (a AudioTranslationModelConfig) Validate() error {
 	if err := a.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapTranslationOptions(a.Provider, a.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*AudioTranslationModel)(nil)
@@ -76,13 +77,28 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 	if err != nil {
 		return nil, err
 	}
+	params, err := mapTranslationOptions(a.provider, effectiveOptions)
+	if err != nil {
+		return nil, err
+	}
+	params.File, err = audioFile(req.Audio)
+	if err != nil {
+		return nil, err
+	}
+	return params, nil
+}
+
+// mapTranslationOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapTranslationOptions(provider string, effectiveOptions transcription.Options) (*openai.AudioTranslationNewParams, error) {
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions("openai: translation", map[string]bool{
 		audioFieldLanguage: effectiveOptions.Language != "",
 	}); rejectUnsupportedOptionsErr != nil {
 		return nil, rejectUnsupportedOptionsErr
 	}
 
-	extensionKey := a.provider + TranslationRequestExtensionSuffix
+	extensionKey := provider + TranslationRequestExtensionSuffix
 	params, err := decodeAudioRequest[openai.AudioTranslationNewParams](effectiveOptions.Extensions, extensionKey, audioFieldModel, audioFieldFile)
 	if err != nil {
 		return nil, err
@@ -92,11 +108,6 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 	}
 
 	params.Model = effectiveOptions.Model
-	params.File, err = audioFile(req.Audio)
-	if err != nil {
-		return nil, err
-	}
-
 	return params, nil
 }
 

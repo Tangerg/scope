@@ -13,18 +13,21 @@ import (
 
 func TestIgnoredOptionsAreRejectedBeforeProviderIO(t *testing.T) {
 	value, topK := 0.5, int64(10)
+	// declared marks an option the dialect itself refuses, so a default carrying
+	// it fails construction; request-level hooks still refuse the others per call.
 	tests := []struct {
 		name     string
 		options  corechat.Options
 		messages bool
+		declared bool
 	}{
-		{name: "chat temperature", options: corechat.Options{Temperature: &value}},
-		{name: "chat top_p", options: corechat.Options{TopP: &value}},
-		{name: "chat frequency_penalty", options: corechat.Options{FrequencyPenalty: &value}},
-		{name: "chat presence_penalty", options: corechat.Options{PresencePenalty: &value}},
-		{name: "messages temperature", options: corechat.Options{Temperature: &value}, messages: true},
-		{name: "messages top_p", options: corechat.Options{TopP: &value}, messages: true},
-		{name: "messages top_k", options: corechat.Options{TopK: &topK}, messages: true},
+		{name: "chat temperature", options: corechat.Options{Temperature: &value}, declared: true},
+		{name: "chat top_p", options: corechat.Options{TopP: &value}, declared: true},
+		{name: "chat frequency_penalty", options: corechat.Options{FrequencyPenalty: &value}, declared: true},
+		{name: "chat presence_penalty", options: corechat.Options{PresencePenalty: &value}, declared: true},
+		{name: "messages temperature", options: corechat.Options{Temperature: &value}, messages: true, declared: true},
+		{name: "messages top_p", options: corechat.Options{TopP: &value}, messages: true, declared: true},
+		{name: "messages top_k", options: corechat.Options{TopK: &topK}, messages: true, declared: true},
 		{name: "messages stop", options: corechat.Options{Stop: []string{"stop"}}, messages: true},
 		{name: "chat reasoning effort on M3", options: corechat.Options{ReasoningEffort: "high"}},
 		{name: "messages reasoning effort on M3", options: corechat.Options{ReasoningEffort: "high"}, messages: true},
@@ -54,6 +57,12 @@ func TestIgnoredOptionsAreRejectedBeforeProviderIO(t *testing.T) {
 					model, err = minimax.NewMessages(t.Context(), minimax.MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: configured})
 				} else {
 					model, err = minimax.NewChatCompletions(t.Context(), minimax.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: configured})
+				}
+				if scope.defaults && test.declared {
+					if err == nil {
+						t.Fatal("construction accepted defaults no request could send")
+					}
+					return
 				}
 				if err != nil {
 					t.Fatal(err)

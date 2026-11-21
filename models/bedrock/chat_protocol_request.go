@@ -3,7 +3,6 @@ package bedrock
 import (
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 
 	corecontent "github.com/Tangerg/scope/core/content"
@@ -81,19 +80,11 @@ func mapServiceTier(tier string) *types.ServiceTier {
 	return &types.ServiceTier{Type: types.ServiceTierType(tier)}
 }
 
-// mapInferenceOptions narrows Core's inference options onto Converse's fields.
-//
-// MaxTokens is an int32 while Core carries an int64 that it only checks for
-// being positive, so a caller may hand over a value the field cannot hold. A
-// bare conversion wraps it to a negative token limit and sends that, which is
-// why the bound is checked here rather than left to the provider to reject.
-func mapInferenceOptions(options corechat.Options) (*types.InferenceConfiguration, error) {
+// mapInferenceOptions narrows options validateOptions admitted onto
+// Converse's fields.
+func mapInferenceOptions(options corechat.Options) *types.InferenceConfiguration {
 	configuration := &types.InferenceConfiguration{StopSequences: slices.Clone(options.Stop)}
 	if options.MaxOutputTokens != nil {
-		if *options.MaxOutputTokens > math.MaxInt32 {
-			return nil, fmt.Errorf("bedrock: options.max_output_tokens %d exceeds the int32 Converse accepts",
-				*options.MaxOutputTokens)
-		}
 		value := int32(*options.MaxOutputTokens)
 		configuration.MaxTokens = &value
 	}
@@ -105,7 +96,7 @@ func mapInferenceOptions(options corechat.Options) (*types.InferenceConfiguratio
 		value := float32(*options.TopP)
 		configuration.TopP = &value
 	}
-	return configuration, nil
+	return configuration
 }
 
 func mapProtocolMessages(messages []corechat.Message) ([]types.SystemContentBlock, []types.Message, error) {

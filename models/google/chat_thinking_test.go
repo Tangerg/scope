@@ -32,6 +32,9 @@ func TestChatAdmitsOneThinkingControlAfterDefaults(t *testing.T) {
 			requestNative string
 			want          *genai.ThinkingConfig
 			conflict      bool
+			// defaultsConflict marks defaults that conflict on their own, which
+			// construction refuses because no request overriding nothing could send them.
+			defaultsConflict bool
 		}{
 			{name: "absent"},
 			{name: "level with thoughts", requestEffort: "high", requestNative: `{"thinkingConfig":{"includeThoughts":true}}`, want: &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelHigh, IncludeThoughts: true}},
@@ -39,7 +42,7 @@ func TestChatAdmitsOneThinkingControlAfterDefaults(t *testing.T) {
 			{name: "default level with request budget", defaultEffort: "high", requestNative: `{"thinkingConfig":{"thinkingBudget":1024}}`, conflict: true},
 			{name: "default budget with request level", defaultNative: `{"thinkingConfig":{"thinkingBudget":1024}}`, requestEffort: "high", conflict: true},
 			{name: "request level and budget", requestEffort: "high", requestNative: `{"thinkingConfig":{"thinkingBudget":1024}}`, conflict: true},
-			{name: "default level and budget", defaultEffort: "high", defaultNative: `{"thinkingConfig":{"thinkingBudget":1024}}`, conflict: true},
+			{name: "default level and budget", defaultEffort: "high", defaultNative: `{"thinkingConfig":{"thinkingBudget":1024}}`, defaultsConflict: true},
 			{name: "zero budget is explicit", requestEffort: "low", requestNative: `{"thinkingConfig":{"thinkingBudget":0}}`, conflict: true},
 			{name: "dynamic budget is explicit", requestEffort: "low", requestNative: `{"thinkingConfig":{"thinkingBudget":-1}}`, conflict: true},
 			{name: "extra-high level", requestEffort: "xhigh", want: &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelXhigh}},
@@ -83,6 +86,12 @@ func TestChatAdmitsOneThinkingControlAfterDefaults(t *testing.T) {
 					model, err = google.NewChat(t.Context(), google.ChatConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: defaults})
 				} else {
 					model, err = vertexai.NewChat(t.Context(), vertexai.ChatConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: defaults})
+				}
+				if test.defaultsConflict {
+					if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
 				}
 				if err != nil {
 					t.Fatal(err)

@@ -80,6 +80,9 @@ func TestEmbeddingAdmitsTaskForEffectiveModel(t *testing.T) {
 				request := &embedding.Request{Texts: []string{"document"}, Options: embedding.Options{Model: test.model}}
 				target := &request.Options
 				if defaults {
+					// Defaults must be admissible on their own, so the task is
+					// judged against the default model the request inherits.
+					options.Model, request.Options.Model = test.model, ""
 					target = &options
 				}
 				if test.task != "" {
@@ -88,6 +91,12 @@ func TestEmbeddingAdmitsTaskForEffectiveModel(t *testing.T) {
 					}
 				}
 				model, err := jina.NewEmbeddingModel(t.Context(), jina.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults && !test.valid {
+					if err == nil || !strings.Contains(err.Error(), "task") {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

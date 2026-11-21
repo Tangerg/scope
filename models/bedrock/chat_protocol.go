@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"math"
 	"net/http"
 	"slices"
 	"sync"
@@ -81,8 +82,31 @@ func (c ChatConfig) Validate() error {
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("bedrock: DefaultOptions: %w", err)
 	}
-	if _, _, err := c.DefaultOptions.Extensions.Decode[ChatRequestOptions](RequestExtensionKey); err != nil {
-		return fmt.Errorf("bedrock: DefaultOptions: %w", err)
+	return validateOptions(c.DefaultOptions)
+}
+
+// validateOptions admits the Core options Converse accepts. A binding applies
+// it to its defaults at construction and to every resolved request, so
+// defaults no request could send fail when they are configured.
+func validateOptions(options corechat.Options) error {
+	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil {
+		return errors.New("bedrock: frequency_penalty, presence_penalty, and top_k are not supported by Converse inference configuration")
+	}
+	// Converse has no portable reasoning control. Mapping an effort to a
+	// model's token budget would invent a value and guess a model generation.
+	if options.ReasoningEffort != "" {
+		return fmt.Errorf("bedrock: options.reasoning_effort %q is not supported by this Converse binding", options.ReasoningEffort)
+	}
+	// MaxTokens is an int32 while Core only checks that the int64 is positive;
+	// a bare conversion would wrap it to a negative token limit and send that.
+	if options.MaxOutputTokens != nil && *options.MaxOutputTokens > math.MaxInt32 {
+		return fmt.Errorf("bedrock: options.max_output_tokens %d exceeds the int32 Converse accepts", *options.MaxOutputTokens)
+	}
+	if options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
+		return fmt.Errorf("%w: bedrock Converse does not support %q", corechat.ErrUnsupportedOutputFormat, options.OutputFormat.Type)
+	}
+	if _, _, err := options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey); err != nil {
+		return fmt.Errorf("bedrock: extension %q: %w", RequestExtensionKey, err)
 	}
 	return nil
 }
@@ -231,25 +255,13 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: options: %w", err)
 	}
-	resolvedRequest := *req
-	resolvedRequest.Options = options
-	req = &resolvedRequest
-
+	if err = validateOptions(options); err != nil {
+		return nil, err
+	}
 	if options.Model == "" {
 		return nil, errors.New("bedrock: model is required in defaults or request options")
 	}
-	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil {
-		return nil, errors.New("bedrock: frequency_penalty, presence_penalty, and top_k are not supported by Converse inference configuration")
-	}
-	// Converse has no portable reasoning control. Mapping an effort to a
-	// model's token budget would invent a value and guess a model generation.
-	if options.ReasoningEffort != "" {
-		return nil, fmt.Errorf(
-			"bedrock: options.reasoning_effort %q is not supported by this Converse binding",
-			options.ReasoningEffort)
-	}
-
-	native, _, err := req.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	native, _, err := options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: extension %q: %w", RequestExtensionKey, err)
 	}
@@ -262,18 +274,11 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if err != nil {
 		return nil, err
 	}
-	if options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
-		return nil, fmt.Errorf("%w: bedrock Converse does not support %q", corechat.ErrUnsupportedOutputFormat, options.OutputFormat.Type)
-	}
-	inference, err := mapInferenceOptions(options)
-	if err != nil {
-		return nil, err
-	}
 	prepared := &preparedChatRequest{
 		model:        options.Model,
 		system:       system,
 		messages:     messages,
-		inference:    inference,
+		inference:    mapInferenceOptions(options),
 		tools:        tools,
 		outputFormat: options.OutputFormat,
 		native:       native,

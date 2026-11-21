@@ -75,6 +75,9 @@ func NewChatCompletions(ctx context.Context, config ChatModelConfig, dialect Dia
 	if err != nil {
 		return nil, fmt.Errorf("openai: dialect: %w", err)
 	}
+	if err = boundDialect.validateOptions(config.DefaultOptions); err != nil {
+		return nil, err
+	}
 	api, err := newAPI(ctx, config.api())
 	if err != nil {
 		return nil, err
@@ -163,13 +166,17 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 	if err != nil {
 		return nil, fmt.Errorf("openai: options: %w", err)
 	}
+	if err = c.dialect.validateOptions(options); err != nil {
+		return nil, err
+	}
 	req = req.Clone()
 	req.Options = options
 	params := openaisdk.ChatCompletionNewParams{}
-	if extensionErr := c.applyRequestExtension(req, &params); extensionErr != nil {
-		return nil, extensionErr
+	fields, err := c.dialect.requestExtensionFields(options.Extensions)
+	if err != nil {
+		return nil, err
 	}
-
+	params.SetExtraFields(fields)
 	if applyErr := c.applyOptions(options, req.ToolChoice, &params); applyErr != nil {
 		return nil, applyErr
 	}
@@ -182,7 +189,7 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 	if err != nil {
 		return nil, err
 	}
-	if formatErr := applyChatOutputFormat(options.OutputFormat, &params, c.dialect.DialectConfig); formatErr != nil {
+	if formatErr := applyChatOutputFormat(options.OutputFormat, &params); formatErr != nil {
 		return nil, formatErr
 	}
 	if prepareErr := c.prepareRequest(req, &params); prepareErr != nil {
@@ -191,52 +198,11 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 	return &params, nil
 }
 
-func (c *ChatCompletions) applyRequestExtension(req *corechat.Request, params *openaisdk.ChatCompletionNewParams) error {
-	extensionKey := protocolRequestExtensionKey(c.dialect.Provider)
-	if c.dialect.DisableRawRequestExtension {
-		if _, supplied, err := req.Options.Extensions.Decode[any](extensionKey); err != nil {
-			return err
-		} else if supplied {
-			return fmt.Errorf("openai: extension %q is not supported by this provider", extensionKey)
-		}
-		return nil
-	}
-
-	fields, err := decodeRequestFields(req.Options.Extensions, extensionKey)
-	if err != nil {
-		return err
-	}
-	for name := range fields {
-		if err := validateChatExtraField(name); err != nil {
-			return fmt.Errorf("openai: extension %q: %w", extensionKey, err)
-		}
-	}
-	params.SetExtraFields(fields)
-	return nil
-}
-
 func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *corechat.ToolChoice, params *openaisdk.ChatCompletionNewParams) error {
 	if options.Model == "" {
 		return errors.New("openai: model is required in defaults or request options")
 	}
-	for _, option := range []struct {
-		name ChatOption
-		set  bool
-	}{
-		{ChatOptionFrequencyPenalty, options.FrequencyPenalty != nil},
-		{ChatOptionPresencePenalty, options.PresencePenalty != nil},
-		{ChatOptionReasoningEffort, options.ReasoningEffort != ""},
-		{ChatOptionTemperature, options.Temperature != nil},
-		{ChatOptionTopP, options.TopP != nil},
-	} {
-		if err := c.dialect.admit(option.name, option.set); err != nil {
-			return err
-		}
-	}
 	if options.TopK != nil {
-		if !c.dialect.SupportsTopK {
-			return fmt.Errorf("openai: options.top_k is not supported by %s Chat Completions", c.dialect.Provider)
-		}
 		fields := maps.Clone(params.ExtraFields())
 		if fields == nil {
 			fields = make(map[string]any)
@@ -244,19 +210,11 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		fields[chatFieldTopK] = *options.TopK
 		params.SetExtraFields(fields)
 	}
-	if limit := c.dialect.MaxTemperature; options.Temperature != nil && limit != nil && *options.Temperature > *limit {
-		return fmt.Errorf("openai: %s documents a temperature range up to %g, so %v is refused rather than sent out of range",
-			c.dialect.Provider, *limit, *options.Temperature)
-	}
 	if err := c.applyTokenLimit(options.MaxOutputTokens, params); err != nil {
 		return err
 	}
-	reasoningEffort, err := c.dialect.reasoningEffort(options.ReasoningEffort)
-	if err != nil {
-		return err
-	}
 	params.Model = openaisdk.ChatModel(options.Model)
-	params.ReasoningEffort = reasoningEffort
+	params.ReasoningEffort = openaisdk.ReasoningEffort(options.ReasoningEffort)
 	params.FrequencyPenalty = optionalFloat(options.FrequencyPenalty)
 	params.PresencePenalty = optionalFloat(options.PresencePenalty)
 	params.Temperature = optionalFloat(options.Temperature)

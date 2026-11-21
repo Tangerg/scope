@@ -21,7 +21,8 @@ func (c ChatConfig) Validate() error {
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("ollama: DefaultOptions: %w", err)
 	}
-	return nil
+	_, err := mapProtocolOptions(c.DefaultOptions)
+	return err
 }
 
 var (

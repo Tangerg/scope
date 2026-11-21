@@ -32,7 +32,7 @@ func TestRequestPriorityAdmission(t *testing.T) {
 			}
 			model, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: endpoint, DefaultOptions: options})
 			if err != nil {
-				t.Fatal(err)
+				return err
 			}
 			_, err = model.Call(t.Context(), request)
 			return err
@@ -49,7 +49,7 @@ func TestRequestPriorityAdmission(t *testing.T) {
 			}
 			model, err := cohere.NewRerankModel(t.Context(), cohere.RerankModelConfig{APIKey: "test", BaseURL: endpoint, DefaultOptions: options})
 			if err != nil {
-				t.Fatal(err)
+				return err
 			}
 			_, err = model.Call(t.Context(), request)
 			return err
@@ -88,6 +88,11 @@ func TestRequestPriorityAdmission(t *testing.T) {
 					if test.valid {
 						if err != nil || calls.Load() != 1 {
 							t.Fatalf("Call error=%v requests=%d", err, calls.Load())
+						}
+					} else if defaults {
+						// An invalid default fails construction, before any call.
+						if err == nil || calls.Load() != 0 {
+							t.Fatalf("invalid default priority error=%v requests=%d", err, calls.Load())
 						}
 					} else if err == nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.Load() != 0 {
 						t.Fatalf("invalid priority error=%v requests=%d", err, calls.Load())

@@ -292,25 +292,22 @@ func TestMediaToBlockSupportsOfficialConverseModalities(t *testing.T) {
 
 // Converse's MaxTokens is an int32 while Core carries an int64 it only checks
 // for being positive. A bare conversion wraps a larger value to a negative
-// token limit and sends it, so the bound is checked before narrowing — the same
-// guard the google adapter already applies to the same field.
+// token limit and sends it, so the bound is checked before narrowing, and a
+// default beyond it fails the binding rather than every call.
 func TestInferenceOptionsRejectMaxTokensBeyondInt32(t *testing.T) {
 	t.Parallel()
 
 	beyond := int64(math.MaxInt32) + 1
-	_, err := mapInferenceOptions(corechat.Options{MaxOutputTokens: &beyond})
-	if err == nil {
-		t.Fatal("mapInferenceOptions() = nil error, want an int32 bound error")
-	}
-	if !strings.Contains(err.Error(), "exceeds the int32 Converse accepts") {
-		t.Fatalf("mapInferenceOptions() = %v, want an int32 bound error", err)
+	err := ChatConfig{DefaultOptions: corechat.Options{MaxOutputTokens: &beyond}}.Validate()
+	if err == nil || !strings.Contains(err.Error(), "exceeds the int32 Converse accepts") {
+		t.Fatalf("Validate() = %v, want an int32 bound error", err)
 	}
 
 	within := int64(math.MaxInt32)
-	configuration, err := mapInferenceOptions(corechat.Options{MaxOutputTokens: &within})
-	if err != nil {
-		t.Fatalf("mapInferenceOptions(MaxInt32) = %v, want nil", err)
+	if err := (ChatConfig{DefaultOptions: corechat.Options{MaxOutputTokens: &within}}).Validate(); err != nil {
+		t.Fatalf("Validate(MaxInt32) = %v, want nil", err)
 	}
+	configuration := mapInferenceOptions(corechat.Options{MaxOutputTokens: &within})
 	if configuration.MaxTokens == nil || *configuration.MaxTokens != math.MaxInt32 {
 		t.Fatalf("MaxTokens = %v, want %d", configuration.MaxTokens, int32(math.MaxInt32))
 	}

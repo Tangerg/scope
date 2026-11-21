@@ -78,6 +78,12 @@ func TestEmbeddingRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				model, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if err == nil || !strings.Contains(err.Error(), field) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -100,11 +106,7 @@ func TestEmbeddingRejectsUnrepresentableEncodingBeforeIO(t *testing.T) {
 			if err := options.Extensions.Set(cohere.EmbeddingRequestExtensionKey, map[string]any{"input_type": "search_document", "embedding_types": types}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = model.Call(t.Context(), &embedding.Request{Texts: []string{"document"}})
+			_, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 			if err == nil || !strings.Contains(err.Error(), "only float") || calls != 0 {
 				t.Fatalf("requests=%d error=%v", calls, err)
 			}

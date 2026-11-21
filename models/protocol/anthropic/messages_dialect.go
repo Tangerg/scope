@@ -1,6 +1,15 @@
 package anthropic
 
-import corechat "github.com/Tangerg/scope/core/chat"
+import (
+	"errors"
+	"fmt"
+	"slices"
+
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
+
+	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
+)
 
 const (
 	CompatibleRequestExtensionSuffix = "/anthropic_request"
@@ -25,6 +34,69 @@ type Dialect struct {
 	// owned request before the Messages wire projection is built. Fields holds
 	// the decoded native request extension and may be changed by the provider.
 	PrepareRequest func(*corechat.Request, map[string]any) error
+}
+
+// reasoningEfforts is the output_config.effort vocabulary. Core's effort is
+// the wire word itself, so admitting it is the whole mapping.
+var reasoningEfforts = []corechat.ReasoningEffort{
+	corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortLow),
+	corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortMedium),
+	corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortHigh),
+	corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortXhigh),
+	corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortMax),
+}
+
+// validateOptions admits the Core options this dialect's endpoint accepts. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func (d Dialect) validateOptions(options corechat.Options) error {
+	if options.FrequencyPenalty != nil {
+		return errors.New("anthropic: options.frequency_penalty is not supported")
+	}
+	if options.PresencePenalty != nil {
+		return errors.New("anthropic: options.presence_penalty is not supported")
+	}
+	// Revision and sampling support are independent endpoint capabilities;
+	// metadata headers cannot enable request fields.
+	for _, sampling := range []struct {
+		name string
+		set  bool
+	}{
+		{requestFieldTemperature, options.Temperature != nil},
+		{requestFieldTopK, options.TopK != nil},
+		{requestFieldTopP, options.TopP != nil},
+	} {
+		if sampling.set && !d.SupportsSampling {
+			return fmt.Errorf("anthropic: options.%s is not supported by %s Messages", sampling.name, d.Provider)
+		}
+	}
+	if options.ReasoningEffort != "" && !slices.Contains(reasoningEfforts, options.ReasoningEffort) {
+		return fmt.Errorf("anthropic: options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
+	}
+	if err := mapProtocolOutputFormat(options.OutputFormat, d, &anthropicsdk.MessageNewParams{}); err != nil {
+		return err
+	}
+	fields, err := d.nativeFields(options.Extensions)
+	if err != nil {
+		return err
+	}
+	_, err = decodeOutputConfig(fields, protocolRequestExtensionKey(d.Provider))
+	return err
+}
+
+// nativeFields decodes the provider's native request fields; none of them may
+// be a field the Core projection owns.
+func (d Dialect) nativeFields(extensions metadata.Extensions) (map[string]any, error) {
+	extensionKey := protocolRequestExtensionKey(d.Provider)
+	encoded, _, err := extensions.Decode[metadata.Map](extensionKey)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: extension %q: %w", extensionKey, err)
+	}
+	fields, err := encoded.Values()
+	if err != nil {
+		return nil, err
+	}
+	return fields, rejectCoreOwnedFields(fields, extensionKey)
 }
 
 func protocolRequestExtensionKey(provider string) string {

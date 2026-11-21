@@ -92,6 +92,12 @@ func TestKeepAlivePreservesFiniteAndIndefiniteDurations(t *testing.T) {
 							t.Fatal(setErr)
 						}
 						model, err := ollama.NewChat(t.Context(), ollama.ChatConfig{DefaultOptions: options, HTTPClient: client})
+						if defaults && test.invalid {
+							if err == nil {
+								t.Fatal("construction admitted an invalid default keep_alive")
+							}
+							return
+						}
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -110,6 +116,12 @@ func TestKeepAlivePreservesFiniteAndIndefiniteDurations(t *testing.T) {
 							t.Fatal(setErr)
 						}
 						model, err := ollama.NewEmbeddingModel(t.Context(), ollama.EmbeddingModelConfig{DefaultOptions: options, HTTPClient: client})
+						if defaults && test.invalid {
+							if err == nil {
+								t.Fatal("construction admitted an invalid default keep_alive")
+							}
+							return
+						}
 						if err != nil {
 							t.Fatal(err)
 						}

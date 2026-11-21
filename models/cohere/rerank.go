@@ -63,7 +63,13 @@ func (r RerankModelConfig) Validate() error {
 	if r.DefaultOptions.Model == "" {
 		return errors.New("cohere: DefaultOptions.Model is required")
 	}
-	return r.DefaultOptions.Validate()
+	if err := r.DefaultOptions.Validate(); err != nil {
+		return err
+	}
+	if _, _, err := r.DefaultOptions.Extensions.Decode[RerankRequestOptions](RerankRequestExtensionKey); err != nil {
+		return fmt.Errorf("cohere: extension %q: %w", RerankRequestExtensionKey, err)
+	}
+	return nil
 }
 
 var _ rerank.Model = (*RerankModel)(nil)

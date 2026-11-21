@@ -56,10 +56,10 @@ func TestOutputFormatRejectsADialectWithoutNativeShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dialect := DialectConfig{NativeOutputFormat: func(formatType corechat.OutputFormatType) bool {
+	dialect := chatDialect{DialectConfig: DialectConfig{NativeOutputFormat: func(formatType corechat.OutputFormatType) bool {
 		return formatType != corechat.OutputFormatJSONSchema
-	}}
-	if err := applyChatOutputFormat(&format, nil, dialect); !errors.Is(err, corechat.ErrUnsupportedOutputFormat) {
-		t.Fatalf("applyChatOutputFormat() error = %v, want ErrUnsupportedOutputFormat", err)
+	}}}
+	if err := dialect.validateOptions(corechat.Options{OutputFormat: &format}); !errors.Is(err, corechat.ErrUnsupportedOutputFormat) {
+		t.Fatalf("validateOptions() error = %v, want ErrUnsupportedOutputFormat", err)
 	}
 }

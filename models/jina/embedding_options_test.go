@@ -78,6 +78,12 @@ func TestEmbeddingRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				model, err := jina.NewEmbeddingModel(t.Context(), jina.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if err == nil || !strings.Contains(err.Error(), field) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

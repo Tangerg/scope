@@ -29,9 +29,10 @@ func (e EmbeddingModelConfig) Validate() error {
 		return errors.New("ollama: DefaultOptions.Model is required")
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {
-		return err
+		return fmt.Errorf("ollama: DefaultOptions: %w", err)
 	}
-	return nil
+	_, err := mapEmbeddingOptions(e.DefaultOptions)
+	return err
 }
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
@@ -64,13 +65,23 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRequest, error) {
-	effectiveOptions := req.Options
-
-	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](EmbeddingRequestExtensionKey)
+	apiReq, err := mapEmbeddingOptions(req.Options)
 	if err != nil {
 		return nil, err
 	}
-	apiReq := &nativeEmbedRequest{}
+	apiReq.Input = req.Texts
+	return apiReq, nil
+}
+
+// mapEmbeddingOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapEmbeddingOptions(options embedding.Options) (*nativeEmbedRequest, error) {
+	raw, found, err := options.Extensions.Decode[json.RawMessage](EmbeddingRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	apiReq := &nativeEmbedRequest{Model: options.Model}
 	if found {
 		var fields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
@@ -88,17 +99,13 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 			return nil, fmt.Errorf("ollama: embedding extension: %w", err)
 		}
 	}
-	apiReq.Model = effectiveOptions.Model
-	apiReq.Input = req.Texts
-
-	if effectiveOptions.Dimensions != nil {
-		dimensions := int(*effectiveOptions.Dimensions)
-		if int64(dimensions) != *effectiveOptions.Dimensions {
-			return nil, fmt.Errorf("ollama: embedding: dimensions: %d exceeds int", *effectiveOptions.Dimensions)
+	if options.Dimensions != nil {
+		dimensions := int(*options.Dimensions)
+		if int64(dimensions) != *options.Dimensions {
+			return nil, fmt.Errorf("ollama: embedding: dimensions: %d exceeds int", *options.Dimensions)
 		}
 		apiReq.Dimensions = dimensions
 	}
-
 	return apiReq, nil
 }
 

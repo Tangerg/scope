@@ -34,7 +34,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.MaxResponseBytes.Validate(); err != nil {
 		return fmt.Errorf("openai: MaxResponseBytes: %w", err)
 	}
-	return nil
+	_, err := mapSpeechOptions(s.Provider, s.DefaultOptions)
+	return err
 }
 
 var _ speech.Model = (*SpeechModel)(nil)
@@ -84,8 +85,19 @@ func (s *SpeechModel) buildAPITTSRequest(req *speech.Request) (*openai.AudioSpee
 	if err != nil {
 		return nil, err
 	}
+	params, err := mapSpeechOptions(s.provider, effectiveOptions)
+	if err != nil {
+		return nil, err
+	}
+	params.Input = req.Text
+	return params, nil
+}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, s.provider+SpeechRequestExtensionSuffix, speechFieldModel, speechFieldInput, speechFieldVoice, speechFieldSpeed, speechFieldResponseFormat, speechFieldStreamFormat)
+// mapSpeechOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapSpeechOptions(provider string, effectiveOptions speech.Options) (*openai.AudioSpeechNewParams, error) {
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, provider+SpeechRequestExtensionSuffix, speechFieldModel, speechFieldInput, speechFieldVoice, speechFieldSpeed, speechFieldResponseFormat, speechFieldStreamFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +105,6 @@ func (s *SpeechModel) buildAPITTSRequest(req *speech.Request) (*openai.AudioSpee
 	params.SetExtraFields(fields)
 
 	params.Model = effectiveOptions.Model
-	params.Input = req.Text
 	if effectiveOptions.Voice != "" {
 		params.Voice = openai.AudioSpeechNewParamsVoiceUnion{OfString: param.NewOpt(effectiveOptions.Voice)}
 	}

@@ -2,31 +2,28 @@ package openai
 
 import (
 	"fmt"
+	"slices"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-func mapReasoningEffort(effort corechat.ReasoningEffort) (openaisdk.ReasoningEffort, error) {
-	switch effort {
-	case "":
-		return "", nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortNone):
-		return openaisdk.ReasoningEffortNone, nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortMinimal):
-		return openaisdk.ReasoningEffortMinimal, nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortLow):
-		return openaisdk.ReasoningEffortLow, nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortMedium):
-		return openaisdk.ReasoningEffortMedium, nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortHigh):
-		return openaisdk.ReasoningEffortHigh, nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortXhigh):
-		return openaisdk.ReasoningEffortXhigh, nil
-	case corechat.ReasoningEffort(openaisdk.ReasoningEffortMax):
-		return openaisdk.ReasoningEffortMax, nil
-	default:
-		return "", fmt.Errorf("openai: options.reasoning_effort has unsupported value %q", effort)
+// openAIReasoningEfforts is OpenAI's reasoning_effort vocabulary. Core's
+// effort is the wire word itself, so admitting it is the whole mapping.
+var openAIReasoningEfforts = []corechat.ReasoningEffort{
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortNone),
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortMinimal),
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortLow),
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortMedium),
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortHigh),
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortXhigh),
+	corechat.ReasoningEffort(openaisdk.ReasoningEffortMax),
+}
+
+func validateReasoningEffort(effort corechat.ReasoningEffort, vocabulary []corechat.ReasoningEffort) error {
+	if effort != "" && !slices.Contains(vocabulary, effort) {
+		return fmt.Errorf("openai: options.reasoning_effort has unsupported value %q", effort)
 	}
+	return nil
 }

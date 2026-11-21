@@ -58,6 +58,9 @@ func NewResponses(ctx context.Context, config ChatModelConfig, dialect Responses
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	if err := dialect.validateOptions(config.DefaultOptions); err != nil {
+		return nil, err
+	}
 	api, err := newAPI(ctx, config.api())
 	if err != nil {
 		return nil, err

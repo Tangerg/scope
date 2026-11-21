@@ -72,6 +72,12 @@ func TestResponsesUnsupportedCoreOptionsCannotUseNativeFields(t *testing.T) {
 						}
 					}
 					model, err := openai.NewResponses(t.Context(), config, binding)
+					if source == "defaults" {
+						if err == nil || !strings.Contains(err.Error(), field.name) {
+							t.Fatalf("NewResponses = %v", err)
+						}
+						return
+					}
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -124,6 +130,12 @@ func TestImageCoreOptionsCannotUseNativeFields(t *testing.T) {
 						t.Fatal(err)
 					}
 					model, err := openai.NewImageModel(t.Context(), config)
+					if defaults {
+						if err == nil || !strings.Contains(err.Error(), field.name) {
+							t.Fatalf("NewImageModel = %v", err)
+						}
+						return
+					}
 					if err != nil {
 						t.Fatal(err)
 					}

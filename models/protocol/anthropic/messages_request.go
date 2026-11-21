@@ -64,6 +64,12 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: options: %w", err)
 	}
+	if err = dialect.validateOptions(options); err != nil {
+		return nil, err
+	}
+	if options.Model == "" {
+		return nil, errors.New("anthropic: model is required in defaults or request options")
+	}
 	req = req.Clone()
 	req.Options = options
 	fields, err := extensionFields(req, dialect)
@@ -71,12 +77,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		return nil, err
 	}
 	options = req.Options
-	if err = checkOptionSupport(options); err != nil {
-		return nil, err
-	}
-	if fields, err = withSampling(fields, options, dialect); err != nil {
-		return nil, err
-	}
+	fields = withSampling(fields, options)
 	outputConfig, err := decodeOutputConfig(fields, protocolRequestExtensionKey(dialect.Provider))
 	if err != nil {
 		return nil, err
@@ -96,9 +97,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	if req.ToolChoice != nil {
 		params.ToolChoice = mapProtocolToolChoice(*req.ToolChoice)
 	}
-	if params.OutputConfig.Effort, err = mapProtocolReasoningEffort(options.ReasoningEffort); err != nil {
-		return nil, err
-	}
+	params.OutputConfig.Effort = anthropicsdk.OutputConfigEffort(options.ReasoningEffort)
 	mapper := protocolMessageMapper{provider: dialect.Provider}
 	system, messages, err := mapper.mapMessages(req.Messages)
 	if err != nil {
@@ -117,51 +116,33 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	return &protocolRequest{params: &params, documents: mapper.documents}, nil
 }
 
-// extensionFields decodes the provider's native fields, lets the dialect
-// prepare the request, and then rejects any field Core owns.
+// extensionFields decodes the provider's native fields and lets the dialect
+// prepare the request; the dialect may not add a field Core owns either.
 func extensionFields(req *corechat.Request, dialect Dialect) (map[string]any, error) {
-	extensionKey := protocolRequestExtensionKey(dialect.Provider)
-	encodedFields, _, err := req.Options.Extensions.Decode[metadata.Map](extensionKey)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: extension %q: %w", extensionKey, err)
+	fields, err := dialect.nativeFields(req.Options.Extensions)
+	if err != nil || dialect.PrepareRequest == nil {
+		return fields, err
 	}
-	fields, err := encodedFields.Values()
-	if err != nil {
-		return nil, err
+	if fields == nil {
+		fields = make(map[string]any)
 	}
-	if dialect.PrepareRequest != nil {
-		if fields == nil {
-			fields = make(map[string]any)
-		}
-		if err = dialect.PrepareRequest(req, fields); err != nil {
-			return nil, fmt.Errorf("anthropic: prepare %s request: %w", dialect.Provider, err)
-		}
+	if err = dialect.PrepareRequest(req, fields); err != nil {
+		return nil, fmt.Errorf("anthropic: prepare %s request: %w", dialect.Provider, err)
 	}
-	for _, name := range []string{requestFieldModel, requestFieldMessages, requestFieldSystem, requestFieldTools, requestFieldStream, requestFieldMaxTokens, requestFieldTemperature, requestFieldToolChoice, requestFieldTopK, requestFieldTopP, requestFieldStopSequences} {
-		if _, exists := fields[name]; exists {
-			return nil, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, name, metadata.ErrCoreOwnedField)
-		}
-	}
-	return fields, nil
+	return fields, rejectCoreOwnedFields(fields, protocolRequestExtensionKey(dialect.Provider))
 }
 
-func checkOptionSupport(options corechat.Options) error {
-	if options.Model == "" {
-		return errors.New("anthropic: model is required in defaults or request options")
-	}
-	if options.FrequencyPenalty != nil {
-		return errors.New("anthropic: options.frequency_penalty is not supported")
-	}
-	if options.PresencePenalty != nil {
-		return errors.New("anthropic: options.presence_penalty is not supported")
+func rejectCoreOwnedFields(fields map[string]any, extensionKey string) error {
+	for _, name := range []string{requestFieldModel, requestFieldMessages, requestFieldSystem, requestFieldTools, requestFieldStream, requestFieldMaxTokens, requestFieldTemperature, requestFieldToolChoice, requestFieldTopK, requestFieldTopP, requestFieldStopSequences} {
+		if _, exists := fields[name]; exists {
+			return fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, name, metadata.ErrCoreOwnedField)
+		}
 	}
 	return nil
 }
 
-// withSampling adds the sampling options the endpoint supports. Revision and
-// sampling support are independent endpoint capabilities; metadata headers
-// cannot enable request fields.
-func withSampling(fields map[string]any, options corechat.Options, dialect Dialect) (map[string]any, error) {
+// withSampling adds the sampling options the dialect admitted.
+func withSampling(fields map[string]any, options corechat.Options) map[string]any {
 	for _, sampling := range []struct {
 		name  string
 		value any
@@ -174,15 +155,12 @@ func withSampling(fields map[string]any, options corechat.Options, dialect Diale
 		if !sampling.set {
 			continue
 		}
-		if !dialect.SupportsSampling {
-			return nil, fmt.Errorf("anthropic: options.%s is not supported by the native Messages API", sampling.name)
-		}
 		if fields == nil {
 			fields = make(map[string]any)
 		}
 		fields[sampling.name] = sampling.value
 	}
-	return fields, nil
+	return fields
 }
 
 func mapProtocolToolChoice(choice corechat.ToolChoice) anthropicsdk.ToolChoiceUnionParam {
@@ -263,25 +241,6 @@ func decodeOutputConfig(fields map[string]any, extensionKey string) (anthropicsd
 	}
 	delete(fields, requestFieldOutputConfig)
 	return config, nil
-}
-
-func mapProtocolReasoningEffort(effort corechat.ReasoningEffort) (anthropicsdk.OutputConfigEffort, error) {
-	switch effort {
-	case "":
-		return "", nil
-	case corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortLow):
-		return anthropicsdk.OutputConfigEffortLow, nil
-	case corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortMedium):
-		return anthropicsdk.OutputConfigEffortMedium, nil
-	case corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortHigh):
-		return anthropicsdk.OutputConfigEffortHigh, nil
-	case corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortXhigh):
-		return anthropicsdk.OutputConfigEffortXhigh, nil
-	case corechat.ReasoningEffort(anthropicsdk.OutputConfigEffortMax):
-		return anthropicsdk.OutputConfigEffortMax, nil
-	default:
-		return "", fmt.Errorf("anthropic: options.reasoning_effort has unsupported value %q", effort)
-	}
 }
 
 func mapProtocolOutputFormat(format *corechat.OutputFormat, dialect Dialect, params *anthropicsdk.MessageNewParams) error {

@@ -135,18 +135,10 @@ func prepareAnthropicRequest(source *corechat.Request, fields map[string]any) er
 	if err := controls.validateFor(source.Options.Model); err != nil {
 		return err
 	}
-	switch {
-	case source.Options.Temperature != nil:
-		return errors.New("minimax: Messages ignores options.temperature")
-	case source.Options.TopP != nil:
-		return errors.New("minimax: Messages ignores options.top_p")
-	case source.Options.TopK != nil:
-		return errors.New("minimax: Messages ignores options.top_k")
-	case len(source.Options.Stop) != 0:
+	if len(source.Options.Stop) != 0 {
 		return errors.New("minimax: Messages ignores options.stop")
-	default:
-		return nil
 	}
+	return nil
 }
 
 func validateReasoningEffort(model string, effort corechat.ReasoningEffort) error {

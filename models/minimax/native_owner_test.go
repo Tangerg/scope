@@ -25,6 +25,13 @@ func TestNativeRequestHasOneTypedOwner(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := minimax.NewChatCompletions(t.Context(), minimax.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+			if defaults {
+				if err == nil {
+					t.Fatal("construction admitted a raw default field")
+				}
+				server.Close()
+				continue
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

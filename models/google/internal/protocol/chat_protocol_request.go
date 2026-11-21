@@ -55,25 +55,12 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("google: options: %w", err)
 	}
-	resolvedRequest := *req
-	resolvedRequest.Options = options
-	req = &resolvedRequest
-	config, err := decodeProtocolConfig(provider, req)
+	config, err := mapProtocolOptions(provider, options)
 	if err != nil {
 		return "", nil, nil, err
 	}
-
 	if options.Model == "" {
 		return "", nil, nil, errors.New("google: model is required in defaults or request options")
-	}
-	if err = mapProtocolSampling(options, config); err != nil {
-		return "", nil, nil, err
-	}
-	if err = mapProtocolThinking(options.ReasoningEffort, config); err != nil {
-		return "", nil, nil, err
-	}
-	if err = mapProtocolOutputFormat(options.OutputFormat, config); err != nil {
-		return "", nil, nil, err
 	}
 	if err = mapProtocolToolChoice(req.ToolChoice, config); err != nil {
 		return "", nil, nil, err
@@ -90,6 +77,26 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	}
 	config.Tools = append(config.Tools, tools...)
 	return options.Model, contents, config, nil
+}
+
+// mapProtocolOptions projects the options alone onto the native config. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapProtocolOptions(provider string, options corechat.Options) (*genai.GenerateContentConfig, error) {
+	config, err := decodeProtocolConfig(provider, options.Extensions)
+	if err != nil {
+		return nil, err
+	}
+	if err = mapProtocolSampling(options, config); err != nil {
+		return nil, err
+	}
+	if err = mapProtocolThinking(options.ReasoningEffort, config); err != nil {
+		return nil, err
+	}
+	if err = mapProtocolOutputFormat(options.OutputFormat, config); err != nil {
+		return nil, err
+	}
+	return config, nil
 }
 
 // mapProtocolSampling projects the portable sampling options onto the native
@@ -160,9 +167,9 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, config *genai.Genera
 	return nil
 }
 
-func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.GenerateContentConfig, error) {
+func decodeProtocolConfig(provider string, extensions metadata.Extensions) (*genai.GenerateContentConfig, error) {
 	extensionKey := protocolKey(provider, RequestExtensionSuffix)
-	config, fields, err := decodeSingleCandidateConfig(req.Options.Extensions, extensionKey)
+	config, fields, err := decodeSingleCandidateConfig(extensions, extensionKey)
 	if err != nil {
 		return nil, err
 	}

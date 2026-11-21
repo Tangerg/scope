@@ -47,35 +47,41 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 	if err != nil {
 		return nil, fmt.Errorf("ollama: options: %w", err)
 	}
-	resolvedRequest := *req
-	resolvedRequest.Options = options
-	req = &resolvedRequest
-
+	apiReq, err := mapProtocolOptions(options)
+	if err != nil {
+		return nil, err
+	}
 	if options.Model == "" {
 		return nil, errors.New("ollama: model is required in defaults or request options")
 	}
 	if req.ToolChoice != nil {
 		return nil, errors.New("ollama: tool choice is not supported by the native chat API")
 	}
-	if options.ReasoningEffort != "" {
-		return nil, errors.New("ollama: options.reasoning_effort is unsupported by native chat; set think through the ollama/request extension")
-	}
-
-	apiReq, err := decodeProtocolRequestExtension(req)
-	if err != nil {
-		return nil, err
-	}
 	apiReq.Model = options.Model
 	apiReq.Stream = new(true)
-	apiReq.Format, err = mapProtocolOutputFormat(options.OutputFormat)
-	if err != nil {
-		return nil, err
-	}
 	apiReq.Messages, err = mapProtocolMessages(req.Messages)
 	if err != nil {
 		return nil, err
 	}
 	apiReq.Tools, err = mapProtocolTools(req.Tools)
+	if err != nil {
+		return nil, err
+	}
+	return apiReq, nil
+}
+
+// mapProtocolOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapProtocolOptions(options corechat.Options) (*nativeChatRequest, error) {
+	if options.ReasoningEffort != "" {
+		return nil, errors.New("ollama: options.reasoning_effort is unsupported by native chat; set think through the ollama/request extension")
+	}
+	apiReq, err := decodeProtocolRequestExtension(options.Extensions)
+	if err != nil {
+		return nil, err
+	}
+	apiReq.Format, err = mapProtocolOutputFormat(options.OutputFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -163,9 +169,9 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat) (json.RawMessage, er
 	}
 }
 
-func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, error) {
+func decodeProtocolRequestExtension(extensions metadata.Extensions) (*nativeChatRequest, error) {
 	apiReq := new(nativeChatRequest)
-	raw, found, err := req.Options.Extensions.Decode[json.RawMessage](RequestExtensionKey)
+	raw, found, err := extensions.Decode[json.RawMessage](RequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("ollama: extension %q: %w", RequestExtensionKey, err)
 	}

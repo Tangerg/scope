@@ -85,7 +85,8 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapEmbeddingOptions(e.DefaultOptions)
+	return err
 }
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
@@ -112,24 +113,36 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2EmbedRequest, error) {
-	effectiveOptions := req.Options
-
-	options, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
-	if err != nil {
-		return nil, err
-	}
 	if len(req.Texts) > MaxTextsPerEmbedRequest {
 		return nil, fmt.Errorf("cohere: embed accepts at most %d texts per call, got %d",
 			MaxTextsPerEmbedRequest, len(req.Texts))
 	}
-	inputType, err := cohere.NewEmbedInputTypeFromString(options.InputType)
+	apiReq, err := mapEmbeddingOptions(req.Options)
 	if err != nil {
-		return nil, fmt.Errorf("cohere: input_type: %w", err)
+		return nil, err
 	}
-	apiReq := &cohere.V2EmbedRequest{
-		InputType: inputType,
-		MaxTokens: options.MaxTokens,
-		Priority:  options.Priority,
+	// Cohere requires input_type, but a request may supply it, so only the
+	// effective request has to carry one.
+	if apiReq.InputType == "" {
+		return nil, errors.New("cohere: input_type is required in defaults or request options")
+	}
+	apiReq.Texts = req.Texts
+	return apiReq, nil
+}
+
+// mapEmbeddingOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapEmbeddingOptions(effectiveOptions embedding.Options) (*cohere.V2EmbedRequest, error) {
+	options, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	apiReq := &cohere.V2EmbedRequest{MaxTokens: options.MaxTokens, Priority: options.Priority}
+	if options.InputType != "" {
+		if apiReq.InputType, err = cohere.NewEmbedInputTypeFromString(options.InputType); err != nil {
+			return nil, fmt.Errorf("cohere: input_type: %w", err)
+		}
 	}
 	for _, encoding := range options.EmbeddingTypes {
 		apiReq.EmbeddingTypes = append(apiReq.EmbeddingTypes, cohere.EmbeddingType(encoding))
@@ -143,7 +156,6 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 	}
 
 	apiReq.Model = effectiveOptions.Model
-	apiReq.Texts = req.Texts
 
 	// Cohere requires at least one embedding type. Core normalizes provider
 	// responses to float vectors, so request that wire shape explicitly.

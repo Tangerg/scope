@@ -34,7 +34,7 @@ func (m MessagesConfig) Validate() error {
 		return err
 	}
 	if err := m.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("anthropic: default options: %w", err)
+		return fmt.Errorf("anthropic: DefaultOptions: %w", err)
 	}
 	return nil
 }
@@ -61,6 +61,9 @@ func NewMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*
 	}
 	if dialect.Provider == "" || strings.TrimSpace(dialect.Provider) != dialect.Provider || strings.Contains(dialect.Provider, "/") {
 		return nil, errors.New("anthropic: dialect provider is required, must not contain '/', and must not have surrounding whitespace")
+	}
+	if err := dialect.validateOptions(config.DefaultOptions); err != nil {
+		return nil, err
 	}
 	api, err := newAPI(ctx, apiConfig{
 		APIKey:       config.APIKey,

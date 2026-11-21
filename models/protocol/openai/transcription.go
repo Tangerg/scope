@@ -27,7 +27,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapTranscriptionOptions(t.Provider, t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -64,22 +65,29 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 	if err != nil {
 		return nil, err
 	}
-
-	params, err := decodeAudioRequest[openai.AudioTranscriptionNewParams](effectiveOptions.Extensions, t.provider+TranscriptionRequestExtensionSuffix, audioFieldModel, audioFieldFile, audioFieldLanguage)
+	params, err := mapTranscriptionOptions(t.provider, effectiveOptions)
 	if err != nil {
 		return nil, err
 	}
-
-	params.Model = effectiveOptions.Model
-	if effectiveOptions.Language != "" {
-		params.Language = param.NewOpt(effectiveOptions.Language)
-	}
-
 	params.File, err = audioFile(req.Audio)
 	if err != nil {
 		return nil, err
 	}
+	return params, nil
+}
 
+// mapTranscriptionOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapTranscriptionOptions(provider string, options transcription.Options) (*openai.AudioTranscriptionNewParams, error) {
+	params, err := decodeAudioRequest[openai.AudioTranscriptionNewParams](options.Extensions, provider+TranscriptionRequestExtensionSuffix, audioFieldModel, audioFieldFile, audioFieldLanguage)
+	if err != nil {
+		return nil, err
+	}
+	params.Model = options.Model
+	if options.Language != "" {
+		params.Language = param.NewOpt(options.Language)
+	}
 	return params, nil
 }
 

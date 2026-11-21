@@ -20,14 +20,9 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-const (
-	reasoningEffortNone    = "none"
-	reasoningEffortMinimal = "minimal"
-	reasoningEffortLow     = "low"
-	reasoningEffortMedium  = "medium"
-	reasoningEffortHigh    = "high"
-	reasoningEffortXHigh   = "xhigh"
-)
+// reasoningEfforts is Mistral's reasoning_effort vocabulary. Core's effort is
+// the wire word itself, so admitting it is the whole mapping.
+var reasoningEfforts = []corechat.ReasoningEffort{"none", "minimal", "low", "medium", "high", "xhigh"}
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
@@ -115,7 +110,30 @@ func (c ChatConfig) Validate() error {
 		return err
 	}
 	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("mistral: default options: %w", err)
+		return fmt.Errorf("mistral: DefaultOptions: %w", err)
+	}
+	return validateOptions(c.DefaultOptions)
+}
+
+// validateOptions admits the Core options Mistral accepts. A binding applies
+// it to its defaults at construction and to every resolved request, so
+// defaults no request could send fail when they are configured.
+func validateOptions(options corechat.Options) error {
+	if options.Temperature != nil && (*options.Temperature < 0 || *options.Temperature > maximumTemperature) {
+		return fmt.Errorf("mistral: options.temperature must be between 0 and %g, got %v", maximumTemperature, *options.Temperature)
+	}
+	if options.ReasoningEffort != "" && !slices.Contains(reasoningEfforts, options.ReasoningEffort) {
+		return fmt.Errorf("mistral: options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
+	}
+	if _, err := newResponseFormat(options.OutputFormat); err != nil {
+		return err
+	}
+	extension, _, err := options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	if err != nil {
+		return fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)
+	}
+	if err := extension.Validate(); err != nil {
+		return fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)
 	}
 	return nil
 }
@@ -225,22 +243,15 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if err != nil {
 		return nil, fmt.Errorf("mistral: options: %w", err)
 	}
-	resolvedRequest := *request
-	resolvedRequest.Options = options
-	request = &resolvedRequest
-	extension, _, err := request.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
-	if err != nil {
-		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)
+	if err = validateOptions(options); err != nil {
+		return nil, err
 	}
-	if validateErr := extension.Validate(); validateErr != nil {
-		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, validateErr)
-	}
-
 	if options.Model == "" {
 		return nil, errors.New("mistral: model is required in defaults or request options")
 	}
-	if options.Temperature != nil && (*options.Temperature < 0 || *options.Temperature > maximumTemperature) {
-		return nil, fmt.Errorf("mistral: options.temperature must be between 0 and %g, got %v", maximumTemperature, *options.Temperature)
+	extension, _, err := options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	if err != nil {
+		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)
 	}
 	messages, err := mapChatRequestMessages(request.Messages)
 	if err != nil {
@@ -257,11 +268,6 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	toolChoice, parallelToolCalls, err := mapMistralToolChoice(request.ToolChoice)
 	if err != nil {
 		return nil, err
-	}
-	switch options.ReasoningEffort {
-	case "", reasoningEffortNone, reasoningEffortMinimal, reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh:
-	default:
-		return nil, fmt.Errorf("mistral: options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
 	}
 	return &chatCompletionRequest{
 		Model:              options.Model,

@@ -28,7 +28,8 @@ func (m ModerationModelConfig) Validate() error {
 	if err := m.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapModerationOptions(m.Provider, m.DefaultOptions)
+	return err
 }
 
 var _ moderation.Model = (*ModerationModel)(nil)
@@ -71,19 +72,24 @@ func (m *ModerationModel) buildAPIModerationRequest(req *moderation.Request) (*o
 	if err != nil {
 		return nil, err
 	}
-
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, m.provider+ModerationRequestExtensionSuffix, moderationFieldModel, moderationFieldInput)
+	params, err := mapModerationOptions(m.provider, effectiveOptions)
 	if err != nil {
 		return nil, err
 	}
-	params := &openai.ModerationNewParams{}
-	params.SetExtraFields(fields)
+	params.Input = openai.ModerationNewParamsInputUnion{OfStringArray: req.Texts}
+	return params, nil
+}
 
-	params.Model = effectiveOptions.Model
-	params.Input = openai.ModerationNewParamsInputUnion{
-		OfStringArray: req.Texts,
+// mapModerationOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapModerationOptions(provider string, options moderation.Options) (*openai.ModerationNewParams, error) {
+	fields, err := decodeRequestFields(options.Extensions, provider+ModerationRequestExtensionSuffix, moderationFieldModel, moderationFieldInput)
+	if err != nil {
+		return nil, err
 	}
-
+	params := &openai.ModerationNewParams{Model: options.Model}
+	params.SetExtraFields(fields)
 	return params, nil
 }
 

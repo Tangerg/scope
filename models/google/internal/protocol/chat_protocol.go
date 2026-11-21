@@ -25,7 +25,8 @@ func (c ChatConfig) Validate() error {
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("google: DefaultOptions: %w", err)
 	}
-	return nil
+	_, err := mapProtocolOptions(c.Provider, c.DefaultOptions)
+	return err
 }
 
 var (

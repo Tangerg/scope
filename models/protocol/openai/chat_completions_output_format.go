@@ -9,14 +9,10 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-func applyChatOutputFormat(format *corechat.OutputFormat, target *openaisdk.ChatCompletionNewParams, dialect DialectConfig) error {
+func applyChatOutputFormat(format *corechat.OutputFormat, target *openaisdk.ChatCompletionNewParams) error {
 	if format == nil {
 		return nil
 	}
-	if dialect.NativeOutputFormat != nil && !dialect.NativeOutputFormat(format.Type) {
-		return fmt.Errorf("%w: openai-compatible endpoint does not support %q", corechat.ErrUnsupportedOutputFormat, format.Type)
-	}
-
 	responseFormat, err := mapChatOutputFormat(format)
 	if err != nil {
 		return err
