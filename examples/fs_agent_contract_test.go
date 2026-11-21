@@ -55,7 +55,7 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			executable := contractValue(fs.NewEditTool(editor))
 			runtime := contractValue(run.New(ctx, run.Config{Store: run.NewMemoryStore(), Build: contractBuild}))
 			defer runtime.Close(context.WithoutCancel(ctx))
-			tools := contractValue(interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{executable}, Revision: "edit-tool"}))
+			tools := contractValue(interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{executable}}))
 			var calls atomic.Int32
 			root := contractInteraction(runtime.Compiler(), interaction.Config{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: run.NewQuota(2), Tools: tools}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 				if calls.Add(1) == 1 {

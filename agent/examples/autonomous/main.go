@@ -47,7 +47,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
-		Revision: "addition-v1", Tools: []tool.Tool{addition},
+		Tools: []tool.Tool{addition},
 	})
 	if err != nil {
 		return err
@@ -55,7 +55,6 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
 		Name: "example.autonomous_calculator", Description: "Use available tools to complete the requested calculation.",
 		Model: interaction.CallModel(client), Tools: tools, MaxModelCalls: agentrun.NewQuota(calculatorFinalAnswerCall),
-		Revision: "calculator-v1",
 	})
 	if err != nil {
 		return err

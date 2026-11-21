@@ -38,7 +38,7 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 	hidden := scriptTool{name: "hidden", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		return tool.Result{Output: tool.NewTextOutput("final evidence")}, nil
 	}}
-	tools, err := NewToolSet(ToolSetConfig{Revision: "context-discovery", Tools: []tool.Tool{advertiser}, DeferredTools: []tool.Tool{hidden}})
+	tools, err := NewToolSet(ToolSetConfig{Tools: []tool.Tool{advertiser}, DeferredTools: []tool.Tool{hidden}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestUnknownContextCanBeResolvedWithoutRepeatingPreparation(t *testing.T) {
 		preparations++
 		return nil, errors.New("retrieval acknowledgement lost")
 	})
-	program := compileTest(t, runtime, Config{ContextPreparer: preparer, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Revision: "preparer", ContextPreparer: preparer, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		return finalResponse(request.Messages[len(request.Messages)-1].Text()), nil
 	}))})
@@ -169,7 +169,7 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
-			program := compileTest(t, runtime, Config{MaxResponseBytes: row.limit, ContextPreparer: row.preparer, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{Revision: "preparer", MaxResponseBytes: row.limit, ContextPreparer: row.preparer, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				t.Error("invalid prepared context dispatched to model")
 				return finalResponse("unexpected"), nil
 			}))})
@@ -256,7 +256,7 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
 			models := 0
-			program := compileTest(t, runtime, Config{CompletionValidator: row.validator, MaxModelCalls: run.NewQuota(1), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{Revision: "validator", CompletionValidator: row.validator, MaxModelCalls: run.NewQuota(1), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				models++
 				return finalResponse("candidate"), nil
 			}))})

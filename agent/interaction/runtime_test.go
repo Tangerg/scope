@@ -108,7 +108,6 @@ func compileTest(t testing.TB, runtime *run.Runtime, config Config) run.Program[
 	t.Helper()
 	config.Name = "test.interaction"
 	config.Description = "Exercise the interaction protocol."
-	config.Revision = "test-model"
 	program, err := Compile(runtime.Compiler(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -116,11 +115,19 @@ func compileTest(t testing.TB, runtime *run.Runtime, config Config) run.Program[
 	return program
 }
 
+// toolSetTest binds Tools that declare no concurrency policy, so the ToolSet
+// carries no Revision.
 func toolSetTest(t testing.TB, tools ...tool.Tool) ToolSet {
 	t.Helper()
-	return concurrentToolSetTest(t, 0, tools...)
+	set, err := NewToolSet(ToolSetConfig{Tools: tools})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
 }
 
+// concurrentToolSetTest binds Tools of which at least one declares a concurrency
+// policy, identified by the ToolSet Revision.
 func concurrentToolSetTest(t testing.TB, maxConcurrentCalls int, tools ...tool.Tool) ToolSet {
 	t.Helper()
 	set, err := NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: tools, MaxConcurrentCalls: maxConcurrentCalls})
@@ -490,7 +497,7 @@ func TestDelegatesComposeThroughChildStartExitAndArtifactAdmission(t *testing.T)
 		t.Fatal(err)
 	}
 	models := 0
-	program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Revision: "artifact-check", Delegates: []Delegate{delegate}, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(chat.ToolCall{ID: "delegation", Name: "worker", Arguments: `{"value":3}`}), nil

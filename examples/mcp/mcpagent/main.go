@@ -32,8 +32,6 @@ type briefOutput struct {
 
 const (
 	briefingBuild             = "example.mcp-briefing.v1"
-	briefingRevision          = "mcp-briefing.v1"
-	searchRevision            = "mcp-search.v1"
 	briefingTopic             = "agent frameworks in 2026"
 	briefingQuery             = "agent frameworks 2026"
 	briefingModelCallLimit    = 3
@@ -169,11 +167,11 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	// A ToolSet Revision identifies the scheduling declarations its Tools'
-	// Steps replay; this Tool declares none, and Compile digests its contract.
-	// Authorization runs inside each call's Effect, so it never affects replay
-	// and stays out of every Revision.
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: searchRevision, Tools: []tool.Tool{tool.Wrap(selected[0], guard.Call)}})
+	// The Tool declares no concurrency policy, so neither the ToolSet nor the
+	// Interaction carries a Revision: authorization runs inside each call's
+	// Effect and the model is an Effect-side collaborator, so neither affects
+	// replay, and Compile digests the Tool contract itself.
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{tool.Wrap(selected[0], guard.Call)}})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, fmt.Errorf("create MCP tool set: %w", err)
 	}
@@ -181,11 +179,9 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	// The Interaction runs no Step-side callback; the model is an Effect-side
-	// collaborator.
 	return interaction.Compile(compiler, interaction.Config{
 		Name: "example.mcp_briefing", Description: "Ask the model for a topic brief using a remote MCP search tool.",
-		Revision: briefingRevision, Model: interaction.CallModel(chatClient),
+		Model:         interaction.CallModel(chatClient),
 		MaxModelCalls: agentrun.NewQuota(briefingModelCallLimit), Tools: toolSet,
 	})
 }

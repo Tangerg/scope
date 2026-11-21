@@ -45,9 +45,9 @@ type ContextPreparer interface {
 	PrepareContext(ctx context.Context, invocation ContextInvocation, request *chat.Request) ([]chat.Message, error)
 }
 
-// preparationTrigger reads the trigger of preparer once, so the Step side
+// freezeTrigger reads the trigger of preparer once, so the Step side
 // keeps a frozen predicate and never the preparer itself.
-func preparationTrigger(preparer ContextPreparer) (trigger func(uint64, *chat.Request) bool, err error) {
+func freezeTrigger(preparer ContextPreparer) (trigger func(uint64, *chat.Request) bool, err error) {
 	if preparer == nil {
 		return nil, nil
 	}

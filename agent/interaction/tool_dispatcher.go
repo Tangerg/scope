@@ -25,16 +25,22 @@ type preparedToolCall struct {
 // executable Tools and their advertising capability stay here, never in the
 // manifest, which the Interaction retains without executables.
 type toolDispatcher struct {
-	bindings    map[string]tool.Binding
-	advertisers map[string]AdvertisingTool
-	manifest    toolManifest
+	tools    map[string]executableTool
+	manifest toolManifest
+}
+
+// executableTool is the Effect-side half of a bound Tool, keyed by the same
+// public name as its manifest entry.
+type executableTool struct {
+	binding tool.Binding
+	// advertiser is nil for a Tool that reveals no deferred Tools.
+	advertiser AdvertisingTool
 }
 
 func newToolDispatcher(requiredCapabilities run.CapabilitySet) *toolDispatcher {
 	return &toolDispatcher{
-		bindings:    make(map[string]tool.Binding),
-		advertisers: make(map[string]AdvertisingTool),
-		manifest:    toolManifest{entries: make(map[string]toolManifestEntry), requiredCapabilities: requiredCapabilities},
+		tools:    make(map[string]executableTool),
+		manifest: toolManifest{entries: make(map[string]toolManifestEntry), requiredCapabilities: requiredCapabilities},
 	}
 }
 
@@ -78,7 +84,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if publicName == "" {
 		return fmt.Errorf("tool %q has no representable model name", entry.contract.Name())
 	}
-	if _, duplicate := t.bindings[publicName]; duplicate {
+	if _, duplicate := t.tools[publicName]; duplicate {
 		return fmt.Errorf("duplicate tool name %q", publicName)
 	}
 	direct, err := toolCapability(executable, "DirectResultTool.ReturnsDirectResult", DirectResultTool.ReturnsDirectResult)
@@ -93,10 +99,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	t.bindings[publicName] = binding
-	if advertiser != nil {
-		t.advertisers[publicName] = advertiser
-	}
+	t.tools[publicName] = executableTool{binding: binding, advertiser: advertiser}
 	entry.direct, entry.concurrent = direct, concurrent
 	t.manifest.entries[publicName] = entry
 	if !deferred {
@@ -133,8 +136,8 @@ func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall
 // input-pending call can never commit a declaration. The returned names must be
 // bound deferred Tools; a declaration of anything else is a Tool defect.
 func (t *toolDispatcher) advertisedNames(name string, invocation tool.Invocation, output tool.Result) (names []string, err error) {
-	advertiser, found := t.advertisers[name]
-	if !found {
+	advertiser := t.tools[name].advertiser
+	if advertiser == nil {
 		return nil, nil
 	}
 	defer func() {
@@ -161,7 +164,7 @@ func (t *toolDispatcher) advertisedNames(name string, invocation tool.Invocation
 // model-visible result of a call that never runs; an error is a defect of the
 // Tool's input validator.
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admission) (preparedToolCall, *toolCallResult, error) {
-	binding, found := t.bindings[call.Name]
+	executable, found := t.tools[call.Name]
 	if !found {
 		return preparedToolCall{}, new(rejectedCallResult(unavailableTool(call.Name))), nil
 	}
@@ -173,7 +176,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 		}
 		return preparedToolCall{}, new(rejectedCallResult(invalidArguments(call.Name, rejection.Message()))), nil
 	}
-	return preparedToolCall{call: call, binding: binding, invocation: invocation}, nil, nil
+	return preparedToolCall{call: call, binding: executable.binding, invocation: invocation}, nil, nil
 }
 
 // toolCapability reads a consumer-owned declaration through any decorators of

@@ -31,7 +31,12 @@ func TestToolSchedulingUsesOnlyTheNextExclusiveBoundary(t *testing.T) {
 		{"invalid arguments do not authorize overlap", func(tool.Invocation) (string, bool) { return "", true }, []chat.ToolCall{requested("echo", "a"), {Name: "echo", ID: "b", Arguments: `{"invalid":true}`}}, 1},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			manifest := toolSetTest(t, scriptTool{name: "echo", classify: row.classify}).manifest()
+			executable := scriptTool{name: "echo", classify: row.classify}
+			set := toolSetTest
+			if row.classify != nil {
+				set = func(t testing.TB, tools ...tool.Tool) ToolSet { return concurrentToolSetTest(t, 0, tools...) }
+			}
+			manifest := set(t, executable).manifest()
 			count, err := manifest.concurrentBatchEnd(t.Context(), row.calls)
 			if err != nil || count != row.count {
 				t.Fatalf("batch size=%d, error=%v", count, err)
@@ -39,7 +44,7 @@ func TestToolSchedulingUsesOnlyTheNextExclusiveBoundary(t *testing.T) {
 		})
 	}
 	var inspections int
-	manifest := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { inspections++; return "shared", true }}).manifest()
+	manifest := concurrentToolSetTest(t, 0, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { inspections++; return "shared", true }}).manifest()
 	calls := make([]chat.ToolCall, 100)
 	for index := range calls {
 		calls[index] = requested("echo", strconv.Itoa(index))
@@ -56,7 +61,7 @@ func TestToolSchedulingUsesOnlyTheNextExclusiveBoundary(t *testing.T) {
 	if _, err := manifest.concurrentBatchEnd(ctx, []chat.ToolCall{requested("echo", "a")}); !errors.Is(err, context.Canceled) {
 		t.Fatal("canceled classification continued", err)
 	}
-	panicking := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { panic("classifier defect") }}).manifest()
+	panicking := concurrentToolSetTest(t, 0, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { panic("classifier defect") }}).manifest()
 	if _, err := panicking.concurrentBatchEnd(t.Context(), []chat.ToolCall{requested("echo", "a")}); err == nil || !strings.Contains(err.Error(), "classifier defect") {
 		t.Fatal("classifier panic did not remain an explicit failure", err)
 	}
@@ -216,7 +221,7 @@ func TestInputValidatorDefectCannotExecuteOrLeakToModelFeedback(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			var called atomic.Bool
-			tools := toolSetTest(t, inputValidatorTool{called: &called, validate: row.validate})
+			tools := concurrentToolSetTest(t, 0, inputValidatorTool{called: &called, validate: row.validate})
 			manifest := tools.manifest()
 			if _, err := manifest.concurrentBatchEnd(t.Context(), []chat.ToolCall{requested("checked", "call")}); !errors.Is(err, errToolInputValidatorDefect) {
 				t.Fatal("validator defect became a scheduling decision", err)
@@ -328,7 +333,7 @@ func TestEachToolCallIsDeclaredUnderItsToolsReplayPolicy(t *testing.T) {
 
 func TestToolSetOwnsTheCapabilitiesEveryToolCallRequires(t *testing.T) {
 	write := mustValue(run.ParseCapability("test.write"))
-	tools := mustValue(NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: []tool.Tool{scriptTool{name: "write"}}, RequiredCapabilities: mustValue(run.NewCapabilitySet(write))}))
+	tools := mustValue(NewToolSet(ToolSetConfig{Tools: []tool.Tool{scriptTool{name: "write"}}, RequiredCapabilities: mustValue(run.NewCapabilitySet(write))}))
 	definition := mustValue(newDefinition(Config{Name: "test.capability", Description: "Require a grant for every tool call.", Tools: tools}))
 	effect := mustValue(toolDispatchRequest{Call: requested("write", "call")}.effect(definition.tools))
 	if got := effect.Policy().RequiredCapabilities.Values(); !slices.Equal(got, []run.Capability{write}) {

@@ -103,7 +103,7 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndIdempotency(t *testing.T)
 					keysMu.Unlock()
 					return tool.Result{Output: tool.NewTextOutput("verified")}, nil
 				}}
-				tools := mustValue(NewToolSet(ToolSetConfig{Revision: "write", Tools: []tool.Tool{executable}}))
+				tools := mustValue(NewToolSet(ToolSetConfig{Tools: []tool.Tool{executable}}))
 				program := compileTest(t, original, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 					modelCalls.Add(1)
 					return callResponse(requested("write", "call")), nil

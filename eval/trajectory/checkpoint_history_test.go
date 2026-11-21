@@ -26,13 +26,13 @@ func TestCheckpointRecoveryCutCannotBecomeEvaluationEvidence(t *testing.T) {
 		}
 	})
 	model := &fixtureInteractionClient{usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: "checkpoint", Tools: []tool.Tool{fixtureWeatherTool{}}})
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{fixtureWeatherTool{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
 		Name: "test.checkpoint", Description: "Record a model-tool-model interaction.",
-		Revision: "checkpoint", Model: interaction.CallModel(model), Tools: toolSet, MaxModelCalls: run.NewQuota(2),
+		Model: interaction.CallModel(model), Tools: toolSet, MaxModelCalls: run.NewQuota(2),
 	})
 	if err != nil {
 		t.Fatal(err)

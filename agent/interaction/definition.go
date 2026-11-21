@@ -21,9 +21,9 @@ const executionStateKind = "interaction"
 type definition struct {
 	maxResponseBytes int
 	contextPolicy    ContextPolicy
-	// preparationDue is the frozen ContextPreparer trigger; nil means the
+	// preparationTrigger is the frozen ContextPreparer trigger; nil means the
 	// Interaction has no preparer.
-	preparationDue         func(sequence uint64, request *chat.Request) bool
+	preparationTrigger     func(sequence uint64, request *chat.Request) bool
 	descriptor             run.Descriptor
 	maxModelCalls          run.Quota
 	delegates              []Delegate
@@ -45,7 +45,7 @@ func newDefinition(config Config) (*definition, error) {
 	if err != nil {
 		return nil, err
 	}
-	preparationDue, err := preparationTrigger(config.ContextPreparer)
+	preparationTrigger, err := freezeTrigger(config.ContextPreparer)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func newDefinition(config Config) (*definition, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, preparationDue: preparationDue,
+	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, preparationTrigger: preparationTrigger,
 		descriptor:             descriptor,
 		maxModelCalls:          config.MaxModelCalls,
 		delegates:              delegates,

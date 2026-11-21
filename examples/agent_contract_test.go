@@ -42,7 +42,7 @@ func (c *contractResolver) Resolve(reference run.ProgramRef) (run.Program[run.Pa
 }
 
 func contractInteraction(compiler *run.Compiler, config interaction.Config, model chat.Model) run.Program[interaction.Input, interaction.Output] {
-	config.Model, config.Revision = interaction.CallModel(model), "contract"
+	config.Model = interaction.CallModel(model)
 	return contractValue(interaction.Compile(compiler, config))
 }
 

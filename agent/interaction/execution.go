@@ -91,7 +91,7 @@ func (e *execution) requestModel(turn run.Turn, consumedMessages uint32, applied
 			return run.Transition{}, err
 		}
 	}
-	if due := e.definition.preparationDue; due != nil && due(e.state.ModelCallCount+1, e.modelRequest()) {
+	if trigger := e.definition.preparationTrigger; trigger != nil && trigger(e.state.ModelCallCount+1, e.modelRequest()) {
 		return e.emitPreparation(turn, consumedMessages, appliedSteerSignalIDs)
 	}
 	return e.emitModelCall(turn, consumedMessages, appliedSteerSignalIDs)

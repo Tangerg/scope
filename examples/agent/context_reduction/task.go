@@ -184,17 +184,22 @@ type contextProgramConfig struct {
 func compileContext(compiler *agentrun.Compiler, config contextProgramConfig) (agentrun.Program[interaction.Input, interaction.Output], error) {
 	task, policy := config.Task, config.Policy
 	if policy.ID == "" {
-		return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("context policy revision is required")
+		return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("context policy ID is required")
 	}
-	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{config.Reader}, Revision: task.ID})
+	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{config.Reader}})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	return interaction.Compile(compiler, interaction.Config{
+	interactionConfig := interaction.Config{
 		Name: "example.context_reduction", Description: "Read reports and preserve every latest fact and constraint.",
-		Model: interaction.CallModel(config.Model), ContextPreparer: policy.Reducer, Revision: task.ID + ":" + policy.ID,
-		MaxModelCalls: agentrun.NewQuota(uint64(len(task.Documents) + 1)), Tools: tools,
-	})
+		Model: interaction.CallModel(config.Model), MaxModelCalls: agentrun.NewQuota(uint64(len(task.Documents) + 1)), Tools: tools,
+	}
+	// The reducer's trigger runs inside the Step, so the policy ID is the
+	// Revision that identifies it.
+	if policy.Reducer != nil {
+		interactionConfig.ContextPreparer, interactionConfig.Revision = policy.Reducer, policy.ID
+	}
+	return interaction.Compile(compiler, interactionConfig)
 }
 
 func runTask(ctx context.Context, task contextTask, policy contextPolicy) (recorded trajectory.Trajectory, runErr error) {

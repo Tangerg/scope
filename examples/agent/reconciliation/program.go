@@ -22,14 +22,14 @@ func newProgram(compiler *agentrun.Compiler, remote *remoteLedger, model *receip
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
 	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
-		Revision: "receipt-tool.v1", Tools: []tool.Tool{recordNote},
+		Tools: []tool.Tool{recordNote},
 	})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
 	return interaction.Compile(compiler, interaction.Config{
 		Name: "example.reconciliation", Description: "Report a reconciled business receipt.",
-		Revision: "receipt-interaction.v1", Model: interaction.CallModel(model),
+		Model:         interaction.CallModel(model),
 		MaxModelCalls: agentrun.NewQuota(receiptModelCallLimit), Tools: tools,
 	})
 }

@@ -44,7 +44,10 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		name   string
 		change func(*Config)
 	}{
-		{"missing revision", func(config *Config) { config.Revision = "" }},
+		{"revision without callbacks", func(config *Config) { config.Revision = "model" }},
+		{"callbacks without revision", func(config *Config) {
+			config.ContextPolicy = func(request *chat.Request) ([]chat.Message, error) { return request.Messages, nil }
+		}},
 		{"invalid name", func(config *Config) { config.Name = "Invalid Name" }},
 		{"empty description", func(config *Config) { config.Description = "" }},
 		{"missing model", func(config *Config) { config.Model = nil }},
@@ -66,7 +69,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			config := Config{Name: "test.valid", Description: "Validate compilation boundaries.", Revision: "model", Model: CallModel(model)}
+			config := Config{Name: "test.valid", Description: "Validate compilation boundaries.", Model: CallModel(model)}
 			row.change(&config)
 			program, err := Compile(compiler, config)
 			if err == nil || program.Valid() {
@@ -74,7 +77,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 			}
 		})
 	}
-	if program, err := Compile(nil, Config{Name: "test.valid", Description: "Require compiler identity.", Revision: "model", Model: CallModel(model)}); err == nil || program.Valid() {
+	if program, err := Compile(nil, Config{Name: "test.valid", Description: "Require compiler identity.", Model: CallModel(model)}); err == nil || program.Valid() {
 		t.Fatal("compilation succeeded without build authority")
 	}
 }
@@ -110,15 +113,17 @@ func (c capabilityPanicTool) InputValidator() func([]byte) error { return nil }
 func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 	executable := scriptTool{name: "echo"}
 	for _, config := range []ToolSetConfig{
-		{}, {Revision: "empty"}, {Tools: []tool.Tool{executable}},
-		{Revision: "nil", Tools: []tool.Tool{nil}},
-		{Revision: "nil deferred", DeferredTools: []tool.Tool{nil}},
-		{Revision: "unrepresentable alias", Tools: []tool.Tool{scriptTool{name: "工具"}}},
-		{Revision: "duplicate", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{executable}},
-		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "direct"}}},
-		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "concurrent"}}},
-		{Revision: "decorated panic", Tools: []tool.Tool{decoratedTool{Tool: capabilityPanicTool{mode: "direct"}}}},
-		{Revision: "negative concurrency", Tools: []tool.Tool{executable}, MaxConcurrentCalls: -1},
+		{}, {Revision: "empty"},
+		{Revision: "no concurrency policy", Tools: []tool.Tool{executable}},
+		{Tools: []tool.Tool{scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }}}},
+		{Tools: []tool.Tool{nil}},
+		{DeferredTools: []tool.Tool{nil}},
+		{Tools: []tool.Tool{scriptTool{name: "工具"}}},
+		{Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{executable}},
+		{Tools: []tool.Tool{capabilityPanicTool{mode: "direct"}}},
+		{Tools: []tool.Tool{capabilityPanicTool{mode: "concurrent"}}},
+		{Tools: []tool.Tool{decoratedTool{Tool: capabilityPanicTool{mode: "direct"}}}},
+		{Tools: []tool.Tool{executable}, MaxConcurrentCalls: -1},
 	} {
 		if set, err := NewToolSet(config); !errors.Is(err, ErrInvalidToolSet) || set.Configured() {
 			t.Fatalf("invalid tool declaration admitted: %+v, %v", config, err)
@@ -154,13 +159,17 @@ func TestToolSetReadsDeclarationsThroughDecorators(t *testing.T) {
 		{"overriding decorator", tool.Wrap(exclusiveTool{Tool: inner}, forward), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			set, err := NewToolSet(ToolSetConfig{Revision: "decorated", Tools: []tool.Tool{test.executable}})
+			config := ToolSetConfig{Tools: []tool.Tool{test.executable}}
+			if test.concurrent {
+				config.Revision = "decorated"
+			}
+			set, err := NewToolSet(config)
 			if err != nil {
 				t.Fatal(err)
 			}
 			entry := set.manifest().entries["echo"]
-			if !entry.direct || (entry.concurrent != nil) != test.concurrent || set.dispatcher.advertisers["echo"] == nil {
-				t.Fatalf("declarations lost: direct=%v concurrent=%v advertises=%v", entry.direct, entry.concurrent != nil, set.dispatcher.advertisers["echo"] != nil)
+			if !entry.direct || (entry.concurrent != nil) != test.concurrent || set.dispatcher.tools["echo"].advertiser == nil {
+				t.Fatalf("declarations lost: direct=%v concurrent=%v advertises=%v", entry.direct, entry.concurrent != nil, set.dispatcher.tools["echo"].advertiser != nil)
 			}
 		})
 	}

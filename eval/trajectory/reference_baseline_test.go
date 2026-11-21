@@ -195,7 +195,7 @@ func TestControlAndFailureEvidenceSurvivesBehaviorProjection(t *testing.T) {
 func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *testing.T) {
 	collect := func(callID string) trajectory.Trajectory {
 		runtime := newRuntime(t, run.NewMemoryStore())
-		leaf, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.leaf", Description: "Answer one delegated question", Revision: "leaf", Model: interaction.CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		leaf, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.leaf", Description: "Answer one delegated question", Model: interaction.CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			response := completedResponse("leaf answer", &chat.Usage{InputTokens: 2})
 			response.Metadata.ID = callID
 			return response, nil
@@ -235,7 +235,7 @@ func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *test
 			}
 			return completedResponse("parent answer", &chat.Usage{}), nil
 		})
-		program, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.parent", Description: "Delegate then answer", Revision: "parent", Model: interaction.CallModel(model), Delegates: []interaction.Delegate{delegate}})
+		program, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.parent", Description: "Delegate then answer", Model: interaction.CallModel(model), Delegates: []interaction.Delegate{delegate}})
 		if err != nil {
 			t.Fatal(err)
 		}

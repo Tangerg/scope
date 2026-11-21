@@ -32,14 +32,13 @@ func rejectedModelResponse(t *testing.T, response *chat.Response) (run.Result[in
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close(context.WithoutCancel(ctx)) })
-	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: "unexecuted", Tools: []tool.Tool{unexecutedTool{t: t}}})
+	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{unexecutedTool{t: t}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
 		Name:        "test.model_rejection",
 		Description: "Reject an unusable model response.",
-		Revision:    "fixture-model",
 		Tools:       tools,
 		Model: interaction.CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			return response, nil

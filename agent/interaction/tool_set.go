@@ -12,6 +12,8 @@ import (
 )
 
 type ToolSetConfig struct {
+	// Revision identifies the concurrency policies of the Tools, the only Tool
+	// declarations Steps run. It is required exactly when a Tool declares one.
 	Revision string
 	// Tools and DeferredTools are bound as given; decorate them with tool.Wrap
 	// first. Declarations are read through tool.As, so they survive decoration.
@@ -40,8 +42,8 @@ func (t ToolSet) manifest() toolManifest {
 }
 
 func NewToolSet(config ToolSetConfig) (ToolSet, error) {
-	if config.Revision == "" || len(config.Tools)+len(config.DeferredTools) == 0 {
-		return ToolSet{}, fmt.Errorf("%w: Revision and at least one Tool are required", ErrInvalidToolSet)
+	if len(config.Tools)+len(config.DeferredTools) == 0 {
+		return ToolSet{}, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)
 	}
 	if config.MaxConcurrentCalls < 0 {
 		return ToolSet{}, fmt.Errorf("%w: MaxConcurrentCalls must not be negative", ErrInvalidToolSet)
@@ -56,6 +58,9 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 		if err := dispatcher.bindTool(executable, true); err != nil {
 			return ToolSet{}, fmt.Errorf("%w: DeferredTools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
+	}
+	if dispatcher.manifest.schedulesConcurrently() != (config.Revision != "") {
+		return ToolSet{}, fmt.Errorf("%w: Revision must identify the Tools' concurrency policies", ErrInvalidToolSet)
 	}
 	return ToolSet{dispatcher: dispatcher, revision: config.Revision, maxConcurrentCalls: config.MaxConcurrentCalls}, nil
 }
@@ -72,7 +77,7 @@ func (t ToolSet) configuration() toolConfiguration {
 		configuration.Entries = append(configuration.Entries, toolConfigurationEntry{
 			Name: name, Contract: entry.contract.Definition(), Deferred: entry.deferred,
 			Direct: entry.direct, Concurrent: entry.concurrent != nil,
-			Advertises: t.dispatcher.advertisers[name] != nil,
+			Advertises: t.dispatcher.tools[name].advertiser != nil,
 		})
 	}
 	slices.SortFunc(configuration.Entries, func(a, b toolConfigurationEntry) int { return strings.Compare(a.Name, b.Name) })
@@ -108,6 +113,17 @@ type toolManifest struct {
 // unbound name is rejected at dispatch, so it is never repeated.
 func (t toolManifest) effectPolicy(name string) run.EffectPolicy {
 	return run.EffectPolicy{Replay: t.entries[name].replayPolicy(), RequiredCapabilities: t.requiredCapabilities}
+}
+
+// schedulesConcurrently reports whether a Tool declares a concurrency policy,
+// the classifier Steps run and replay.
+func (t toolManifest) schedulesConcurrently() bool {
+	for _, entry := range t.entries {
+		if entry.concurrent != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (t toolManifest) initialDefinitions() []tool.Definition {

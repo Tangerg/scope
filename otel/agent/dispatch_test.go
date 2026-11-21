@@ -30,7 +30,7 @@ func TestDispatchMiddlewareSpansABuiltInStrategysEffects(t *testing.T) {
 		return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}, nil
 	})
 	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
-		Name: "test.instrumented", Description: "Answer once.", Revision: "instrumented", Model: interaction.CallModel(model),
+		Name: "test.instrumented", Description: "Answer once.", Model: interaction.CallModel(model),
 	})
 	if err != nil {
 		t.Fatal(err)

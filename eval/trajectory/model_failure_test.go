@@ -262,7 +262,7 @@ func TestRuntimePanicCarriesExplicitUnknownFailure(t *testing.T) {
 		t.Fatal("replaced dispatcher invoked the model")
 		return nil, nil
 	})
-	original, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.dispatcher_panic", Description: "Observe one model intent at a failed dispatcher boundary.", Revision: "unreachable-model", Model: interaction.CallModel(model)})
+	original, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.dispatcher_panic", Description: "Observe one model intent at a failed dispatcher boundary.", Model: interaction.CallModel(model)})
 	if err != nil {
 		t.Fatal(err)
 	}

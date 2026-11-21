@@ -243,7 +243,7 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
-	different := mustValue(Compile(runtime.Compiler(), Config{Name: program.Descriptor().Name(), Description: program.Descriptor().Description(), Revision: "another-configuration", Model: CallModel(model)}))
+	different := mustValue(Compile(runtime.Compiler(), Config{Name: program.Descriptor().Name(), Description: program.Descriptor().Description(), MaxModelCalls: run.NewQuota(1), Model: CallModel(model)}))
 	if got := mustValue(mustValue(NewHistoryProjection(different)).SettledResults(log)); len(got) != 0 {
 		t.Fatal("program name overrode exact binding identity")
 	}

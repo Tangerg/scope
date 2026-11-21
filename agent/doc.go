@@ -70,7 +70,9 @@
 //     owns its replay policy, and nothing at dispatch time can change it.
 //
 // A Program's Revision identifies only the Step-side callbacks it runs and
-// replays. Declarative configuration is digested automatically, and Effect-side
-// collaborators, such as models, Tool execution, middleware and authorization,
-// do not affect replay, so changing them never strands a recoverable run.
+// replays, and every strategy requires one exactly when such callbacks are
+// configured, so a Revision always names code. Declarative configuration is
+// digested automatically, and Effect-side collaborators, such as models, Tool
+// execution, middleware and authorization, do not affect replay, so changing
+// them never strands a recoverable run.
 package agent

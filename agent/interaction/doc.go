@@ -1,8 +1,8 @@
 // Package interaction composes chat models, tools, and delegates into managed
 // Programs with [Input] and [Output]. [Compile] requires the Runtime's immutable
-// Compiler, a Revision identifying the Step-side callbacks, and explicit
-// configuration. The Compiler
-// freezes configuration and exact child bindings into the Program identity.
+// Compiler and explicit configuration, with a Revision exactly when Step-side
+// callbacks are configured. The Compiler freezes configuration and exact child
+// bindings into the Program identity.
 //
 // Each Execution owns its conversation and decision progress. Its definition
 // retains immutable tool declarations, validators, and classifiers; only the

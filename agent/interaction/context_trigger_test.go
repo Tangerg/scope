@@ -67,7 +67,7 @@ func TestPreparationTriggerSelectsWhichModelCallsArePrepared(t *testing.T) {
 	}
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	program := compileTest(t, runtime, Config{Tools: echoTools(t), ContextPreparer: preparer, Model: CallModel(echoRoundModel())})
+	program := compileTest(t, runtime, Config{Revision: "trigger", Tools: echoTools(t), ContextPreparer: preparer, Model: CallModel(echoRoundModel())})
 	handle := startInteraction(t, runtime, program)
 	if output := awaitOutput(t, handle); output.ModelResponse.Text() != "done" {
 		t.Fatalf("output = %+v", output)
@@ -114,7 +114,7 @@ func TestContextPolicyReadsTheRequestTheModelCallWouldSend(t *testing.T) {
 		return request.Messages, nil
 	}
 	runtime := conformancetest.Runtime(t, run.Config{})
-	program := compileTest(t, runtime, Config{Tools: echoTools(t), ContextPolicy: policy, Model: CallModel(echoRoundModel())})
+	program := compileTest(t, runtime, Config{Revision: "policy", Tools: echoTools(t), ContextPolicy: policy, Model: CallModel(echoRoundModel())})
 	awaitOutput(t, startInteraction(t, runtime, program))
 	if len(seen) != 2 || !slices.Equal(seen[0], []string{"echo"}) || !slices.Equal(seen[1], []string{"echo"}) {
 		t.Fatalf("ContextPolicy saw Tools %v, want the advertised definitions before each call", seen)

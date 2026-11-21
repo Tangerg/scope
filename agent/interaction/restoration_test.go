@@ -51,7 +51,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 
 func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(value delegateValue) (delegateValue, error) { return value, nil })
-	tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
+	tools := concurrentToolSetTest(t, 0, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
 	definition := mustValue(newDefinition(Config{Name: "test.restore", Description: "Reject contradictory continuation facts.", Tools: tools, Delegates: []Delegate{delegate}, MaxModelCalls: run.NewQuota(4)}))
 	call := requested("echo", "call")
 	second := requested("echo", "second")

@@ -22,7 +22,7 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 		calls.Add(1)
 		return tool.Result{}, errors.New("receipt was lost")
 	}}
-	tools := mustValue(NewToolSet(ToolSetConfig{Revision: "recovery-contract", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{scriptTool{name: "hidden"}, scriptTool{name: "report.read"}}}))
+	tools := mustValue(NewToolSet(ToolSetConfig{Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{scriptTool{name: "hidden"}, scriptTool{name: "report.read"}}}))
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("write", "call")), nil
 	})

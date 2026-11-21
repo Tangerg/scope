@@ -23,10 +23,11 @@ type Config struct {
 	Name            string
 	Description     string
 	// Revision identifies the Step-side callbacks the Interaction runs and
-	// replays: ContextPolicy, CompletionValidator, the ContextPreparer trigger,
-	// and the scheduling declarations of its Tools. Declarative configuration
-	// is digested automatically, and Effect-side collaborators, such as the
-	// model, Tool execution and middleware, do not affect replay.
+	// replays: ContextPolicy, CompletionValidator and the ContextPreparer
+	// trigger. It is required exactly when one of them is set, as in every
+	// strategy. Declarative configuration is digested automatically, the
+	// ToolSet carries its own Revision, and Effect-side collaborators, such as
+	// the model, Tool execution and middleware, do not affect replay.
 	Revision string
 	Model    ModelSource
 	// Tools freezes tool admission and execution policy.
@@ -47,8 +48,9 @@ type Config struct {
 // Go input/output against the same schemas used at dispatch and recovery.
 func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], error) {
 	var zero run.Program[Input, Output]
-	if cfg.Revision == "" {
-		return zero, fmt.Errorf("%w: Revision must identify the Step-side callbacks", run.ErrInvalidProgram)
+	callbacks := cfg.ContextPolicy != nil || cfg.CompletionValidator != nil || cfg.ContextPreparer != nil
+	if callbacks != (cfg.Revision != "") {
+		return zero, fmt.Errorf("%w: Revision must identify the configured Step-side callbacks", run.ErrInvalidProgram)
 	}
 	definition, err := newDefinition(cfg)
 	if err != nil {
@@ -69,15 +71,15 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 		delegates = append(delegates, configuredDelegate{d.definition, d.child.Program.ProgramRef(), d.child.Budget, d.child.Capabilities})
 	}
 	policy := struct {
-		LocalContext, ExternalContext, ValidateCompletion bool
-		MaxModelCalls                                     run.Quota
-		Tools                                             toolConfiguration
-		MaxResponseBytes, MaxStreamDeltaBytes             int
-		Delegates                                         []configuredDelegate
+		ContextPolicy, ContextPreparer, CompletionValidator bool
+		MaxModelCalls                                       run.Quota
+		Tools                                               toolConfiguration
+		MaxResponseBytes, MaxStreamDeltaBytes               int
+		Delegates                                           []configuredDelegate
 	}{
-		LocalContext:        cfg.ContextPolicy != nil,
-		ExternalContext:     cfg.ContextPreparer != nil,
-		ValidateCompletion:  cfg.CompletionValidator != nil,
+		ContextPolicy:       cfg.ContextPolicy != nil,
+		ContextPreparer:     cfg.ContextPreparer != nil,
+		CompletionValidator: cfg.CompletionValidator != nil,
 		MaxModelCalls:       definition.maxModelCalls,
 		Tools:               cfg.Tools.configuration(),
 		MaxResponseBytes:    definition.maxResponseBytes,

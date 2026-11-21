@@ -17,10 +17,10 @@
 //
 // Host selection uses the original MCP source and remote identity. ToolSet
 // freezes the canonical tool contract, and Compile digests it without
-// caller-created configuration digests. Revisions identify only Step-side
-// callbacks; the session, the authorization guard and the model run inside
-// Effects, so reconnecting or revoking the grant keeps the exact binding and
-// recovery never repeats an uncertain call. Ordinary tool calls remain in the
+// caller-created configuration digests. The Program configures no Step-side
+// callback, so it carries no Revision: the session, the authorization guard and
+// the model run inside Effects, so reconnecting or revoking the grant keeps the
+// exact binding and recovery never repeats an uncertain call. Ordinary tool calls remain in the
 // interaction process.
 //
 // Cancellation notifies the peer without closing its session. A lost outcome

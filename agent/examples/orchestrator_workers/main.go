@@ -227,7 +227,7 @@ func interactionProgram(compiler *agentrun.Compiler, name, description string, m
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	program, err := interaction.Compile(compiler, interaction.Config{Name: name, Description: description, MaxModelCalls: agentrun.NewQuota(interactionModelCallLimit), Model: interaction.CallModel(client), Revision: name})
+	program, err := interaction.Compile(compiler, interaction.Config{Name: name, Description: description, MaxModelCalls: agentrun.NewQuota(interactionModelCallLimit), Model: interaction.CallModel(client)})
 	return program.Erase(), err
 }
 
