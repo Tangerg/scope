@@ -86,7 +86,7 @@ func (t *treeState) applyRecord(entry Entry) error {
 		// A checkpoint materializes its own prefix; folding the prefix already
 		// produced that state, so the record adds nothing to replay.
 		return nil
-	case SignalAdmitted, Stepped, EffectIntent, ExecutionFailed:
+	case SignalAdmitted, Stepped, ExecutionFailed:
 		return t.applyToProcess(value)
 	default:
 		return ErrInvalidLog
@@ -124,8 +124,6 @@ func (t *treeState) applyToProcess(record Record) error {
 		return p.admit(value.Signal, t.limits)
 	case Stepped:
 		return p.advance(value, t.limits)
-	case EffectIntent:
-		return p.prepare(value)
 	case ExecutionFailed:
 		return p.failExecution(value.Failure)
 	default:
@@ -511,15 +509,10 @@ func projectLog(log Log) (*treeState, error) {
 }
 
 // validateBoundary rejects a cut inside one batch: a child start without its
-// settlement, or a Step without the intents of all its Effects.
+// settlement.
 func (t *treeState) validateBoundary() error {
 	if t.unsettledChild.Valid() {
 		return ErrInvalidLog
-	}
-	for _, process := range t.processes {
-		if !process.intentsComplete() {
-			return ErrInvalidLog
-		}
 	}
 	return nil
 }

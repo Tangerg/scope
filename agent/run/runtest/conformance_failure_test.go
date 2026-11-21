@@ -73,8 +73,8 @@ func publicConformanceFailures() []conformanceFailure {
 	return []conformanceFailure{
 		{"nil store factory", "", "runtest: store factory is nil", func(t *testing.T) { RunStoreConformance(t, nil) }},
 		{"acknowledged start disappears", "crash started after append", "committed prefix was lost", brokenStoreSuite(omitEveryAppend)},
-		{"acknowledged effect intent disappears", "crash effect_intent after append", "lost acknowledgment did not leave the exact committed batch", brokenStoreSuite(omitEffectIntent)},
-		{"store grants an unauthorized replay policy", "crash effect_intent after append", "unacknowledged effect did not receive a durable unknown outcome", brokenStoreSuite(authorizeReplay)},
+		{"acknowledged effect step disappears", "crash stepped after append", "lost acknowledgment did not leave the exact committed batch", brokenStoreSuite(omitEffectStep)},
+		{"store grants an unauthorized replay policy", "crash stepped after append", "replayed step differs from committed transition", brokenStoreSuite(authorizeReplay)},
 		{"store rewrites successful settlement", "crash effect_settled after append", "recovered outcome=failed", brokenStoreSuite(rewriteSettlement)},
 		{"history read drops its first entry", "read yields history after a position", "read after 0", brokenStoreSuite(dropFirstHistoryEntry)},
 		{"committed checkpoint disappears", "checkpoint recovery keeps the same local wait", "checkpoint barrier did not commit its recovery baseline", brokenStoreSuite(hideCheckpoint)},
@@ -85,7 +85,7 @@ func publicConformanceFailures() []conformanceFailure {
 		{"descendant exit cannot commit", "descendant exits precede their parents", "probe cannot commit child exit", brokenStoreSuite(refuseChildExit)},
 		{"signal append fails", "local waits have no handshake", "probe cannot admit signal", brokenStoreSuite(refuseSignalReceipt)},
 		{"recovery activation fails", "durable observations survive takeover", "probe cannot activate writer", brokenStoreSuite(refuseActivation)},
-		{"unknown outcome resolution fails", "crash effect_intent after append", "probe cannot reconcile outcome", brokenStoreSuite(refuseResolution)},
+		{"unknown outcome resolution fails", "crash stepped after append", "probe cannot reconcile outcome", brokenStoreSuite(refuseResolution)},
 		{"round trip reports false acknowledgment", "append and load preserve records", "committed log is missing", brokenStoreSuite(omitEveryAppend)},
 		{"nil Definition", "", "Definition conformance Definition is nil", func(t *testing.T) { RunDefinitionConformance(t, DefinitionConformanceConfig{}) }},
 		{"invalid Descriptor", "descriptor is stable", "invalid Descriptor", invalidDescriptorSuite},
@@ -117,10 +117,10 @@ func omitEveryAppend(probe *storeProbe, _ run.Store) {
 	probe.append = func(context.Context, run.Batch) error { return nil }
 }
 
-func omitEffectIntent(probe *storeProbe, store run.Store) {
+func omitEffectStep(probe *storeProbe, store run.Store) {
 	probe.append = func(ctx context.Context, batch run.Batch) error {
 		for _, record := range batch.Records {
-			if _, ok := record.(run.EffectIntent); ok {
+			if step, ok := record.(run.Stepped); ok && len(step.Intents()) != 0 {
 				return nil
 			}
 		}
@@ -146,10 +146,25 @@ func authorizeReplay(probe *storeProbe, store run.Store) {
 			return err
 		}
 		for index, record := range changed.Records {
-			if intent, ok := record.(run.EffectIntent); ok {
-				intent.Policy.Replay = run.ReplayPolicySameIdentity
-				changed.Records[index] = intent
+			step, ok := record.(run.Stepped)
+			if !ok || step.Transition.Kind() != run.TransitionKindYield || len(step.Intents()) == 0 {
+				continue
 			}
+			effects := step.Transition.Effects()
+			for effectIndex, effect := range effects {
+				if effect.Target() != run.EffectTargetDispatcher {
+					continue
+				}
+				policy := effect.Policy()
+				policy.Replay = run.ReplayPolicySameIdentity
+				if effects[effectIndex], err = run.NewDispatcherEffect(effect.Payload(), policy); err != nil {
+					return err
+				}
+			}
+			if step.Transition, err = run.Yield(step.Transition.Consumed(), effects, step.Transition.Waits()...); err != nil {
+				return err
+			}
+			changed.Records[index] = step
 		}
 		return store.Append(ctx, changed)
 	}

@@ -37,7 +37,7 @@ func TestInvalidStepCandidatesCannotPublishProgress(t *testing.T) {
 			}
 			for _, entry := range log.Entries {
 				switch entry.Record.(type) {
-				case Stepped, EffectIntent:
+				case Stepped:
 					t.Fatal("invalid candidate became committed progress")
 				}
 			}
@@ -45,55 +45,39 @@ func TestInvalidStepCandidatesCannotPublishProgress(t *testing.T) {
 	}
 }
 
-type policyProbe struct {
-	policy   func(Effect) EffectPolicy
-	dispatch func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error)
+func TestDispatcherEffectWithoutADispatcherRejectsTheWholeStep(t *testing.T) {
+	store := NewMemoryStore()
+	runtime := kernelRuntime(t, Config{Store: store})
+	program := lifecycleCallProgram(t, runtime, replayNever, nil)
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
+	result := controlValue(handle.Await(t.Context()))
+	failure, failed := result.Termination().Failure()
+	if !failed || failure.Kind() != FailureKindContract || failure.Code() != failureExecutionEffectInvalid.Code() {
+		t.Fatalf("an undispatchable Effect was admitted: %+v", failure)
+	}
+	log, _, err := store.Load(t.Context(), handle.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if log.Head() != 4 || result.Usage().CommittedSteps != 0 || result.Usage().PreparedEffects != 0 {
+		t.Fatalf("an undispatchable Effect committed partial progress: head=%d usage=%+v", log.Head(), result.Usage())
+	}
 }
 
-func (p policyProbe) Policy(effect Effect) EffectPolicy { return p.policy(effect) }
-
-func (p policyProbe) Dispatch(ctx context.Context, request EffectRequest, emitter DeltaEmitter) (Settlement, error) {
-	return p.dispatch(ctx, request, emitter)
-}
-
-func TestInvalidEffectPolicyRejectsTheWholeStepBeforeDispatch(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		policy     func(Effect) EffectPolicy
-		wantKind   FailureKind
-		wantCode   string
-		dispatcher bool
-	}{
-		{"missing dispatcher", nil, FailureKindContract, failureExecutionEffectInvalid.Code(), false},
-		{"invalid replay policy", func(Effect) EffectPolicy { return EffectPolicy{} }, FailureKindContract, failureExecutionEffectInvalid.Code(), true},
-		{"policy panic", func(Effect) EffectPolicy { panic("policy failed") }, FailureKindPanic, failureExecutionEffectInvalid.Code(), true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store := NewMemoryStore()
-			runtime := kernelRuntime(t, Config{Store: store})
-			var calls atomic.Int32
-			var dispatcher Dispatcher
-			if test.dispatcher {
-				dispatcher = policyProbe{policy: test.policy, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
-					calls.Add(1)
-					return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
-				}}
-			}
-			program := lifecycleCallProgram(t, runtime, dispatcher)
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
-			result := controlValue(handle.Await(t.Context()))
-			failure, failed := result.Termination().Failure()
-			if !failed || failure.Kind() != test.wantKind || failure.Code() != test.wantCode || calls.Load() != 0 {
-				t.Fatalf("invalid policy crossed the dispatch boundary: failure=%+v calls=%d", failure, calls.Load())
-			}
-			log, _, err := store.Load(t.Context(), handle.ID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if log.Head() != 4 || result.Usage().CommittedSteps != 0 || result.Usage().PreparedEffects != 0 {
-				t.Fatalf("invalid policy committed partial progress: head=%d usage=%+v", log.Head(), result.Usage())
-			}
-		})
+func TestNewDispatcherEffectRequiresAPayloadAndAPolicy(t *testing.T) {
+	payload := controlValue(ParsePayload([]byte(`0`)))
+	if _, err := NewDispatcherEffect(payload, EffectPolicy{}); !errors.Is(err, ErrInvalidEffect) {
+		t.Fatalf("an Effect without a replay policy was declared: %v", err)
+	}
+	if _, err := NewDispatcherEffect(Payload{}, replayNever); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("an Effect without a payload was declared: %v", err)
+	}
+	effect := controlValue(NewDispatcherEffect(payload, replaySameIdentity))
+	if !effect.Policy().equal(replaySameIdentity) || !effect.Payload().Equal(payload) {
+		t.Fatalf("declared Effect = %+v", effect)
+	}
+	if effect.Equal(controlValue(NewDispatcherEffect(payload, replayNever))) {
+		t.Fatal("Effects declaring different policies compared equal")
 	}
 }
 
@@ -111,7 +95,7 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := kernelRuntime(t, Config{})
-			program := lifecycleCallProgram(t, runtime, boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: test.dispatch})
+			program := lifecycleCallProgram(t, runtime, replayNever, DispatcherFunc(test.dispatch))
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
@@ -145,17 +129,12 @@ func TestRecoveryUsesTheCommittedReplayPolicy(t *testing.T) {
 			cause := errors.New("settlement write interrupted")
 			fault := &lifecycleFaultStore{store: store, kind: RecordKindEffectSettled, cause: cause}
 			runtime := kernelRuntime(t, Config{Store: fault})
-			var policies, dispatches atomic.Int32
-			dispatcher := policyProbe{policy: func(Effect) EffectPolicy {
-				if policies.Add(1) != 1 {
-					panic("recovery queried an uncommitted policy")
-				}
-				return EffectPolicy{Replay: replay}
-			}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+			var dispatches atomic.Int32
+			dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				dispatches.Add(1)
 				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
-			}}
-			program := lifecycleCallProgram(t, runtime, dispatcher)
+			})
+			program := lifecycleCallProgram(t, runtime, EffectPolicy{Replay: replay}, dispatcher)
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
@@ -172,8 +151,8 @@ func TestRecoveryUsesTheCommittedReplayPolicy(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if result := controlValue(recovered.Await(ctx)); !result.Valid() || policies.Load() != 1 || dispatches.Load() != wantDispatches {
-				t.Fatalf("recovery changed the accepted replay decision: policy calls=%d dispatches=%d", policies.Load(), dispatches.Load())
+			if result := controlValue(recovered.Await(ctx)); !result.Valid() || dispatches.Load() != wantDispatches {
+				t.Fatalf("recovery changed the committed replay decision: dispatches=%d", dispatches.Load())
 			}
 		})
 	}
@@ -182,11 +161,11 @@ func TestRecoveryUsesTheCommittedReplayPolicy(t *testing.T) {
 func TestRepeatedUnknownReplayDoesNotResolveItself(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
 	var calls atomic.Int32
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		calls.Add(1)
 		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
-	}}
-	program := lifecycleCallProgram(t, runtime, dispatcher)
+	})
+	program := lifecycleCallProgram(t, runtime, replaySameIdentity, dispatcher)
 	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
@@ -230,7 +209,7 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 	runtime := kernelRuntime(t, Config{Store: fault})
 	allStarted := make(chan struct{})
 	var calls atomic.Int32
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(ctx context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(ctx context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
 		calls.Add(1)
 		if request.ID().Index == 1 {
 			close(allStarted)
@@ -243,8 +222,8 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 		case <-ctx.Done():
 			return Settlement{}, ctx.Err()
 		}
-	}}
-	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
+	})
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`))), replayNever))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.writer_failure"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
 			return Yield(0, []Effect{effect, effect})

@@ -404,22 +404,11 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 	if err := p.admitTransition(transition, t.state.limits, uint32(len(turn.Messages))); err != nil {
 		failure, classified := StepFailure(err)
 		if !classified {
-			failure = newRuntimeFailure(failureExecutionTransitionInvalid, err)
+			failure = newRuntimeFailure(transitionClassification(err), err)
 		}
 		return t.reject(p, failure)
 	}
-	records := []Record{Stepped{Process: turn.Process, Step: turn.Step, Delivered: uint32(len(turn.Messages)), Transition: transition}}
-	for index, effect := range transition.effects {
-		policy, err := p.effectPolicy(effect)
-		if err != nil {
-			classification := failureExecutionEffectInvalid
-			if _, callback := errors.AsType[*callbackError](err); !callback && errors.Is(err, ErrInvalidCapability) {
-				classification = failureRuntimeCapabilityDenied
-			}
-			return t.reject(p, newRuntimeFailure(classification, err))
-		}
-		records = append(records, EffectIntent{ID: turn.EffectID(uint32(index)), Effect: effect, Policy: policy, At: recordedNow()})
-	}
+	records := []Record{Stepped{Process: turn.Process, Step: turn.Step, Delivered: uint32(len(turn.Messages)), Transition: transition, At: recordedNow()}}
 	for _, message := range turn.Messages[:transition.consumed] {
 		if exit, ok := message.(Exit); ok {
 			records = append(records, Reaped{Process: exit.Child})
@@ -437,6 +426,18 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 		t.checkpointAfter++
 	}
 	return nil
+}
+
+// transitionClassification names what an inadmissible Transition violated.
+func transitionClassification(err error) FailureClassification {
+	switch {
+	case errors.Is(err, ErrInvalidCapability):
+		return failureRuntimeCapabilityDenied
+	case errors.Is(err, ErrInvalidEffect):
+		return failureExecutionEffectInvalid
+	default:
+		return failureExecutionTransitionInvalid
+	}
 }
 
 func (t *treeRuntime) reject(p *processState, failure Failure) error {
@@ -538,7 +539,7 @@ func (t *treeRuntime) resumeEffect(p *processState, intent EffectIntent) error {
 	switch {
 	case intent.Effect.Target() == EffectTargetFramework && p.terminal.Valid():
 		return t.settleChildRequest(intent.ID, nil, newRuntimeFailure(failureRuntimeChildRequestCanceled, ErrProcessFinished))
-	case intent.Policy.Replay == ReplayPolicyNever || p.terminal.Valid():
+	case intent.Effect.Policy().Replay == ReplayPolicyNever || p.terminal.Valid():
 		failure := newRuntimeFailure(failureRuntimeEffectRecoveryInvalid, ErrEffectOutcomeUnknown)
 		return t.append(t.ctx, []Record{unknownRecord(intent.ID, failure)})
 	default:
@@ -569,10 +570,12 @@ func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {
 	request := EffectRequest{id: id, epoch: t.state.epoch, program: p.started.Program, effect: pending.Intent.Effect}
 	job := &dispatchJob{cancel: cancel, reply: reply}
 	t.jobs[id] = job
-	dispatcher := p.program.dispatcher
+	dispatcher, middlewares := p.program.dispatcher, t.runtime.dispatchMiddlewares
 	emit := t.emitter(request)
 	go func() {
-		outcome, err := invokeCallback("Dispatcher.Dispatch", func() (Settlement, error) { return dispatcher.Dispatch(ctx, request, emit) })
+		outcome, err := invokeCallback("Dispatcher.Dispatch", func() (Settlement, error) {
+			return decorate(dispatcher, middlewares).Dispatch(ctx, request, emit)
+		})
 		var failure *Failure
 		if err != nil {
 			value := newRuntimeFailure(failureRuntimeDispatchFailed, err)
@@ -846,7 +849,7 @@ func (t *treeRuntime) replay(request treeCommand, p *processState, id EffectID) 
 		request.reply <- commandResponse{err: err}
 	case !pending.unknown() || t.jobs[id] != nil:
 		request.reply <- commandResponse{err: ErrEffectNotPending}
-	case pending.Intent.Policy.Replay != ReplayPolicySameIdentity || p.terminal.Valid():
+	case pending.Intent.Effect.Policy().Replay != ReplayPolicySameIdentity || p.terminal.Valid():
 		request.reply <- commandResponse{err: ErrEffectReplayForbidden}
 	default:
 		if err := t.dispatch(id, request.reply); err != nil {

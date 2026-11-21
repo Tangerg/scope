@@ -116,7 +116,7 @@ func (e *execution) nextModelCall(appliedSteerSignalIDs []run.SignalID) *modelCa
 
 func (e *execution) emitModelCall(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID) (run.Transition, error) {
 	call := e.nextModelCall(appliedSteerSignalIDs)
-	effect, err := effectEnvelope{ModelCall: call}.effect()
+	effect, err := effectEnvelope{ModelCall: call}.effect(unrepeatable)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -128,7 +128,7 @@ func (e *execution) emitModelCall(turn run.Turn, consumedMessages uint32, applie
 // emitPreparation asks the ContextPreparer to prepare the next model call's
 // context before that call is counted.
 func (e *execution) emitPreparation(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID) (run.Transition, error) {
-	effect, err := effectEnvelope{Preparation: e.nextModelCall(appliedSteerSignalIDs)}.effect()
+	effect, err := effectEnvelope{Preparation: e.nextModelCall(appliedSteerSignalIDs)}.effect(unrepeatable)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -435,7 +435,7 @@ func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.
 		if invocation != nil || active >= e.definition.maxConcurrentToolCalls {
 			continue
 		}
-		effect, effectErr := toolDispatchRequest{Call: calls[index]}.effect()
+		effect, effectErr := toolDispatchRequest{Call: calls[index]}.effect(e.definition.tools)
 		if effectErr != nil {
 			return run.Transition{}, effectErr
 		}
@@ -513,7 +513,7 @@ func (e *execution) acceptCall(turn run.Turn, message run.Message, call chat.Too
 	}
 	switch value := message.(type) {
 	case run.Signal:
-		effect, matched, err := invocation.acceptAnswer(call, value, turn.NextEffectID(*effects))
+		effect, matched, err := invocation.acceptAnswer(call, value, turn.NextEffectID(*effects), e.definition.tools)
 		if matched && err == nil {
 			*effects = append(*effects, effect)
 		}

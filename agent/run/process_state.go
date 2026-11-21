@@ -28,7 +28,6 @@ type processState struct {
 	yielded          bool
 	terminal         Termination
 	exited           *Exited
-	stepEffects      []Effect
 	execution        Execution
 	program          Program[Payload, Payload]
 }
@@ -150,9 +149,6 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 		return ErrInvalidLog
 	}
 	transition := stepped.Transition
-	if !p.intentsComplete() {
-		return ErrInvalidLog
-	}
 	if err := p.admitTransition(transition, limits, stepped.Delivered); err != nil {
 		return err
 	}
@@ -167,7 +163,9 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 		captured.Pending = !p.answered(wait.Key)
 		p.waits[wait.Key] = captured
 	}
-	p.stepEffects = transition.Effects()
+	for _, intent := range stepped.Intents() {
+		p.pending[intent.ID] = PendingCheckpoint{Intent: intent}
+	}
 	switch transition.kind {
 	case TransitionKindComplete:
 		p.terminate(Termination{output: transition.output})
@@ -199,41 +197,6 @@ func (p *processState) withdrawWaits() {
 		wait.Pending = false
 		p.waits[key] = wait
 	}
-}
-
-func (p *processState) prepare(intent EffectIntent) error {
-	if intent.ID.Step != p.usage.CommittedSteps || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].Equal(intent.Effect) {
-		return ErrInvalidLog
-	}
-	if _, ok := p.pending[intent.ID]; ok {
-		return ErrInvalidLog
-	}
-	if err := p.started.permits(intent.Policy); err != nil {
-		return err
-	}
-	p.stepEffects[intent.ID.Index] = Effect{}
-	p.pending[intent.ID] = PendingCheckpoint{Intent: intent}
-	return nil
-}
-
-// effectPolicy resolves the policy p prepares effect under: the kernel's own
-// for a framework Effect, otherwise its Program's Dispatcher's, which p's
-// Start grant must permit.
-func (p *processState) effectPolicy(effect Effect) (EffectPolicy, error) {
-	if intrinsic, owned := effect.intrinsicPolicy(); owned {
-		return intrinsic, nil
-	}
-	if p.program.dispatcher == nil {
-		return EffectPolicy{}, ErrInvalidEffect
-	}
-	policy, err := invokeCallback("Dispatcher.Policy", func() (EffectPolicy, error) { return p.program.dispatcher.Policy(effect), nil })
-	if err != nil {
-		return EffectPolicy{}, err
-	}
-	if !policy.Valid() {
-		return EffectPolicy{}, ErrInvalidEffect
-	}
-	return policy, p.started.permits(policy)
 }
 
 // settleable is the one rule deciding whether a settlement of id may be
@@ -393,6 +356,26 @@ func (p *processState) admitTransition(transition Transition, limits TreeLimits,
 			return err
 		}
 	}
+	for _, effect := range transition.effects {
+		if err := p.admitEffect(effect); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// admitEffect is the one rule deciding whether p may declare effect: its Start
+// grant must cover the capabilities the Effect's policy requires, and a
+// dispatcher Effect needs a Dispatcher. A fold without a bound Program, as in
+// inspection, cannot check the Dispatcher; recovery binds each Program before
+// it folds that Program's Steps.
+func (p *processState) admitEffect(effect Effect) error {
+	if err := p.started.permits(effect.Policy()); err != nil {
+		return err
+	}
+	if p.program.Valid() && effect.Target() == EffectTargetDispatcher && p.program.dispatcher == nil {
+		return fmt.Errorf("%w: the Program has no Dispatcher", ErrInvalidEffect)
+	}
 	return nil
 }
 
@@ -455,15 +438,6 @@ func (p *processState) admitMessages(limits TreeLimits, consumed uint64, effects
 		return ErrResourceLimitExceeded
 	}
 	return nil
-}
-
-func (p *processState) intentsComplete() bool {
-	for _, effect := range p.stepEffects {
-		if effect.Valid() {
-			return false
-		}
-	}
-	return true
 }
 
 func (p *processState) answered(wait WaitKey) bool {

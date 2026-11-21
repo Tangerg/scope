@@ -23,7 +23,6 @@ const (
 	RecordKindActivated        RecordKind = "activated"
 	RecordKindSignalAdmitted   RecordKind = "signal_admitted"
 	RecordKindStepped          RecordKind = "stepped"
-	RecordKindEffectIntent     RecordKind = "effect_intent"
 	RecordKindEffectSettled    RecordKind = "effect_settled"
 	RecordKindExited           RecordKind = "exited"
 	RecordKindReaped           RecordKind = "reaped"
@@ -107,34 +106,41 @@ type SignalAdmitted struct {
 func (SignalAdmitted) recordKind() RecordKind { return RecordKindSignalAdmitted }
 func (s SignalAdmitted) valid() bool          { return s.Process.Valid() && s.Signal.Valid() && !s.At.IsZero() }
 
+// Stepped commits one Step. Its Transition is the only encoding of the
+// Effects the Step declared: committing it is the intent to perform them, and
+// it is appended before any of them is dispatched.
 type Stepped struct {
 	Process    ProcessID  `json:"process"`
 	Step       uint64     `json:"step"`
 	Delivered  uint32     `json:"delivered" jsonwire:"required"`
 	Transition Transition `json:"transition"`
+	At         time.Time  `json:"at"`
 }
 
 func (Stepped) recordKind() RecordKind { return RecordKindStepped }
 
 func (s Stepped) valid() bool {
-	return s.Process.Valid() && s.Step > 0 && s.Transition.Valid() && s.Transition.Consumed() <= s.Delivered
+	return s.Process.Valid() && s.Step > 0 && s.Transition.Valid() && s.Transition.Consumed() <= s.Delivered && !s.At.IsZero()
 }
 
-type EffectIntent struct {
-	ID     EffectID     `json:"id"`
-	Effect Effect       `json:"effect"`
-	Policy EffectPolicy `json:"policy"`
-	At     time.Time    `json:"at"`
-}
-
-func (EffectIntent) recordKind() RecordKind { return RecordKindEffectIntent }
-
-func (e EffectIntent) valid() bool {
-	if intrinsic, owned := e.Effect.intrinsicPolicy(); owned && !e.Policy.equal(intrinsic) {
-		return false
+// Intents returns the Effects the Step declared, in declaration order, with
+// the identities the Runtime gives them.
+func (s Stepped) Intents() []EffectIntent {
+	intents := make([]EffectIntent, len(s.Transition.effects))
+	for index, effect := range s.Transition.effects {
+		intents[index] = EffectIntent{ID: EffectID{Process: s.Process, Step: s.Step, Index: uint32(index)}, Effect: effect}
 	}
-	return e.ID.Valid() && e.Effect.Valid() && e.Policy.Valid() && !e.At.IsZero()
+	return intents
 }
+
+// EffectIntent is an Effect a committed Step declared, under its identity. It
+// is derived from Stepped, never recorded on its own.
+type EffectIntent struct {
+	ID     EffectID `json:"id"`
+	Effect Effect   `json:"effect"`
+}
+
+func (e EffectIntent) valid() bool { return e.ID.Valid() && e.Effect.Valid() }
 
 type EffectSettled struct {
 	ID      EffectID   `json:"id"`
@@ -146,7 +152,7 @@ type EffectSettled struct {
 func (EffectSettled) recordKind() RecordKind { return RecordKindEffectSettled }
 
 func (e EffectSettled) valid() bool {
-	return e.ID.Valid() && e.Outcome.Valid() && !e.At.IsZero() && (e.Failure == nil || e.Failure.Valid() && e.Outcome.Status() == SettlementStatusUnknown && e.Outcome.payload.Equal(nullPayload))
+	return e.ID.Valid() && !e.At.IsZero() && e.Outcome.settles(e.Failure)
 }
 
 type Exited struct {
@@ -263,7 +269,7 @@ func validateRecord(record Record) error {
 		return ErrInvalidLog
 	}
 	switch record.(type) {
-	case Started, Activated, SignalAdmitted, Stepped, EffectIntent, EffectSettled,
+	case Started, Activated, SignalAdmitted, Stepped, EffectSettled,
 		Exited, Reaped, Checkpoint, ControlRequested, ExecutionFailed:
 	default:
 		return ErrInvalidLog
@@ -303,8 +309,6 @@ func DecodeRecord(kind RecordKind, data []byte) (Record, error) {
 		value, err = jsonwire.Decode[SignalAdmitted](data)
 	case RecordKindStepped:
 		value, err = jsonwire.Decode[Stepped](data)
-	case RecordKindEffectIntent:
-		value, err = jsonwire.Decode[EffectIntent](data)
 	case RecordKindEffectSettled:
 		value, err = jsonwire.Decode[EffectSettled](data)
 	case RecordKindExited:
@@ -337,8 +341,6 @@ func recordProcess(record Record) ProcessID {
 		return value.Process
 	case Stepped:
 		return value.Process
-	case EffectIntent:
-		return value.ID.Process
 	case EffectSettled:
 		return value.ID.Process
 	case Exited:
@@ -360,7 +362,7 @@ func recordProcess(record Record) ProcessID {
 // pointers need copies, so reading long histories never re-encodes payloads.
 func cloneRecord(record Record) (Record, error) {
 	switch value := record.(type) {
-	case Started, Activated, SignalAdmitted, Stepped, EffectIntent, Exited, Reaped, ControlRequested, ExecutionFailed:
+	case Started, Activated, SignalAdmitted, Stepped, Exited, Reaped, ControlRequested, ExecutionFailed:
 		return value, nil
 	case EffectSettled:
 		if value.Failure != nil {

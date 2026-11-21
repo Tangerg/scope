@@ -119,7 +119,7 @@ func TestEffectsAndTransitionsUseOneCurrentWireSchema(t *testing.T) {
 	child := controlValue(root.Child(controlValue(ParseChildKey("child"))))
 	signal := Signal{ID: controlValue(ParseSignalID("input")), Payload: controlValue(EncodePayload(1))}
 	effects := []Effect{
-		controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{}`))))),
+		controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{}`))), replayNever)),
 		controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("child")), ProgramRef: program.ProgramRef(), Input: controlValue(EncodePayload(0))})),
 		controlValue(NewChildSignalEffect(child, signal)),
 		controlValue(NewChildCancelEffect(child, "parent completed")),

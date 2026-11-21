@@ -24,7 +24,7 @@ func TestDeliveryAuthorityIsRequiredBeforeDispatch(t *testing.T) {
 	}
 }
 
-func TestMalformedMessageIsDefinitelyRejectedWithoutDeliveryOrReplay(t *testing.T) {
+func TestMalformedMessageIsDefinitelyRejectedWithoutDelivery(t *testing.T) {
 	dispatcher := require(NewDispatcher(DispatcherConfig{Port: &uncalledPort{}}))
 	for _, raw := range []string{
 		`null`, `{}`, `{"recipient":"peer","payload":"answer","unexpected":true}`,
@@ -32,20 +32,9 @@ func TestMalformedMessageIsDefinitelyRejectedWithoutDeliveryOrReplay(t *testing.
 		`{"payload":"answer"}`, `{"recipient":"peer"}`,
 	} {
 		t.Run(raw, func(t *testing.T) {
-			effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw)))))
-			if policy := dispatcher.Policy(effect); policy.Replay != run.ReplayPolicyNever {
-				t.Fatalf("invalid message authorized replay: %+v", policy)
-			}
+			effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw))), run.EffectPolicy{Replay: run.ReplayPolicyNever}))
 			conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
 		})
-	}
-	for _, absent := range []*Dispatcher{nil, {}} {
-		if policy := absent.Policy(run.Effect{}); policy.Replay != run.ReplayPolicyNever {
-			t.Fatalf("missing authority authorized replay: %+v", policy)
-		}
-	}
-	if policy := dispatcher.Policy(run.Effect{}); policy.Replay != run.ReplayPolicyNever {
-		t.Fatalf("empty effect authorized replay: %+v", policy)
 	}
 	message := Message{Recipient: require(run.ParseProcessID("peer")), Payload: require(run.EncodePayload("answer"))}
 	conformancetest.CheckDispatcherRejection(t, &Dispatcher{}, require(message.Effect()))

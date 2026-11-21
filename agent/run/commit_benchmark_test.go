@@ -112,7 +112,7 @@ func BenchmarkLongRunEffectCommit(b *testing.B) {
 		marks := make(chan time.Time, 1)
 		runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: NewMemoryStore()}))
 		definition := &effectCommitDefinition{descriptor: kernelDescriptor(b, "benchmark.effect_commit"), marks: marks}
-		dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(_ context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
+		dispatcher := DispatcherFunc(func(_ context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
 			elapsed := time.Since(<-marks)
 			step := request.ID().Step
 			if step == benchmarkEarlyEffect {
@@ -128,7 +128,7 @@ func BenchmarkLongRunEffectCommit(b *testing.B) {
 				late = append(late, elapsed)
 			}
 			return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
-		}}
+		})
 		program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
 		b.StartTimer()
 		if result, err := runtime.Run(b.Context(), program, 0); err != nil || result != benchmarkEffectCount {
@@ -191,7 +191,7 @@ func (e *effectCommitExecution) Step(_ context.Context, turn Turn) (Transition, 
 		return Complete(consumed, controlValue(EncodePayload(e.completed)))
 	}
 	e.marks <- time.Now()
-	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
+	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`))), replayNever))})
 }
 
 func durationMedian(samples []time.Duration) time.Duration {
@@ -209,10 +209,10 @@ func BenchmarkRecoveryCutIsBoundedByTheCheckpointInterval(b *testing.B) {
 			runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: store}))
 			marks := make(chan time.Time, 1)
 			definition := &boundedEffectDefinition{effectCommitDefinition: effectCommitDefinition{descriptor: kernelDescriptor(b, "benchmark.recovery_cut"), marks: marks}, effects: effects}
-			dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+			dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				<-marks
 				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
-			}}
+			})
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
 			handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			if _, err := handle.Await(b.Context()); err != nil {
@@ -272,5 +272,5 @@ func (b *boundedEffectExecution) Step(_ context.Context, turn Turn) (Transition,
 		return Complete(consumed, controlValue(EncodePayload(b.completed)))
 	}
 	b.marks <- time.Now()
-	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
+	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`))), replayNever))})
 }

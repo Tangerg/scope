@@ -94,6 +94,13 @@ func (s Settlement) Valid() bool {
 	return s.status.Valid() && s.payload.Valid() && !s.failure.Valid()
 }
 
+// settles reports whether s may be recorded as an Effect's outcome together
+// with failure, the runtime's explanation of an outcome it could not learn.
+// Only an Unknown outcome without domain evidence carries one.
+func (s Settlement) settles(failure *Failure) bool {
+	return s.Valid() && (failure == nil || failure.Valid() && s.status == SettlementStatusUnknown && s.payload.Equal(nullPayload))
+}
+
 func (s Settlement) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSettlement

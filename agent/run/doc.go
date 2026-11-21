@@ -1,5 +1,6 @@
 // Package run executes deterministic Programs against an append-only tree log.
-// Store.Append acknowledges every Effect intent before dispatch and every
+// Store.Append acknowledges every Step, whose Transition is the one record of
+// the Effects it declares, before any of them is dispatched, and every
 // settlement before another Step can consume it. A Checkpoint materializes its
 // prefix: recovery starts from the newest one, re-executes only the Steps after
 // it, and rejects code whose replayed Transition differs from the log. The
@@ -16,6 +17,14 @@
 // Runtime's execution authority. Bind is the atomic construction API for custom
 // Definitions. Revision identifies opaque callbacks and clients; changing Build,
 // Revision, a declaration, or a child reference changes the Program reference.
+//
+// A Step declares each dispatcher Effect with its EffectPolicy through
+// NewDispatcherEffect: whether recovery may repeat it under the same identity,
+// and the capabilities it requires from the Start grant. The policy is
+// committed with the Step and compared on replay, so no Dispatcher or
+// middleware can supply or change it. Config.DispatchMiddlewares decorate every
+// dispatch of every Program, the Runtime's one cross-cutting point; they
+// observe and shape execution, never policy.
 //
 // Start is durable and detached from the request context after admission. Reuse
 // the same StartID to retry submission; a conflicting declaration is rejected.

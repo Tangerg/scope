@@ -104,8 +104,9 @@ func (t toolDispatchRequest) validate() error {
 	return nil
 }
 
-func (t toolDispatchRequest) effect() (run.Effect, error) {
-	return effectEnvelope{ToolCall: &t}.effect()
+// effect declares the call under the policy of the Tool it names.
+func (t toolDispatchRequest) effect(tools toolManifest) (run.Effect, error) {
+	return effectEnvelope{ToolCall: &t}.effect(tools.effectPolicy(t.Call.Name))
 }
 
 // toolResume continues the Tool with the input it requested, carrying the
@@ -199,9 +200,13 @@ func (e effectEnvelope) validate() error {
 	}
 }
 
+// unrepeatable is the policy of a model call and a context preparation: each is
+// an external operation whose output and cost recovery cannot reproduce.
+var unrepeatable = run.EffectPolicy{Replay: run.ReplayPolicyNever}
+
 // effect admits an envelope by the rule set the decode path also enforces, so
 // the Execution can never emit an Effect its Dispatcher would reject.
-func (e effectEnvelope) effect() (run.Effect, error) {
+func (e effectEnvelope) effect(policy run.EffectPolicy) (run.Effect, error) {
 	if err := e.validate(); err != nil {
 		return run.Effect{}, err
 	}
@@ -209,7 +214,7 @@ func (e effectEnvelope) effect() (run.Effect, error) {
 	if err != nil {
 		return run.Effect{}, err
 	}
-	return run.NewDispatcherEffect(payload)
+	return run.NewDispatcherEffect(payload, policy)
 }
 
 func (r resultEnvelope) operation() operation {

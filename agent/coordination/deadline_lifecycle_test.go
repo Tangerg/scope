@@ -12,10 +12,6 @@ import (
 
 type observedDeadlineDispatcher struct{ requests chan run.EffectRequest }
 
-func (o observedDeadlineDispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	return (deadlineDispatcher{}).Policy(effect)
-}
-
 func (o observedDeadlineDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	o.requests <- request
 	return (deadlineDispatcher{}).Dispatch(ctx, request, emit)

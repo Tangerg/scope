@@ -17,7 +17,7 @@ import (
 
 func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	model := effectEnvelope{ModelCall: &modelCall{ModelCallSequence: 41, Request: testInput(), Tools: []tool.Definition{scriptTool{name: "echo"}.Definition()}}}
-	modelEffect := mustValue(model.effect())
+	modelEffect := mustValue(model.effect(unrepeatable))
 	request, recognized, err := ModelCallFromEffect(modelEffect)
 	if err != nil || !recognized || request.Sequence != 41 || len(request.Request.Tools) != 1 || request.Request.Tools[0].Name != "echo" {
 		t.Fatalf("model intent=%+v recognized=%t error=%v", request, recognized, err)
@@ -39,7 +39,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`{"private":true}`)))
 	reference := testTurn(1).EffectID(1)
 	for _, resume := range []*toolResume{nil, {InputRequest: question, Reference: reference, InputResponse: []byte(`true`)}} {
-		effect := mustValue(toolDispatchRequest{Call: call, Resume: resume}.effect())
+		effect := mustValue(toolDispatchRequest{Call: call, Resume: resume}.effect(toolManifest{}))
 		observed, present, decodeErr := ToolCallFromEffect(effect)
 		origin := observed.ContinuationOf
 		if decodeErr != nil || !present || observed.Call != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {
@@ -50,7 +50,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		}
 	}
 	child := mustValue(testTurn(1).Process.Child(mustValue(run.ParseChildKey("child"))))
-	preparation := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(effectEnvelope{Preparation: model.ModelCall}))))
+	preparation := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(effectEnvelope{Preparation: model.ModelCall})), unrepeatable))
 	for _, effect := range []run.Effect{{}, mustValue(run.NewChildCancelEffect(child, "finished")), preparation} {
 		if value, found, decodeErr := ModelCallFromEffect(effect); decodeErr != nil || found || value.Request != nil || value.Sequence != 0 {
 			t.Fatal("kernel effect acquired model semantics", decodeErr)
@@ -60,7 +60,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{`null`, `{}`, `{"model_call":{}}`, `{"tool_call":{}}`, `{"model_call":{},"tool_call":{}}`} {
-		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(raw)))))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(raw))), unrepeatable))
 		if _, _, decodeErr := ModelCallFromEffect(effect); decodeErr == nil {
 			t.Fatal("malformed model protocol admitted", raw)
 		}

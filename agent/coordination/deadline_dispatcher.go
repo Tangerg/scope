@@ -31,7 +31,9 @@ func newTimerEffect(deadline time.Time) (run.Effect, error) {
 	if err != nil {
 		return run.Effect{}, err
 	}
-	return run.NewDispatcherEffect(payload)
+	// Waiting for an absolute deadline has no external effect, so recovery
+	// may simply wait again.
+	return run.NewDispatcherEffect(payload, run.EffectPolicy{Replay: run.ReplayPolicySameIdentity})
 }
 
 func decodeTimerEffect(effect run.Effect) (timerRequest, error) {
@@ -44,13 +46,6 @@ func decodeTimerEffect(effect run.Effect) (timerRequest, error) {
 		return timerRequest{}, fmt.Errorf("%w: timer requires an absolute deadline", ErrInvalidProtocol)
 	}
 	return request, nil
-}
-
-func (deadlineDispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	if _, err := decodeTimerEffect(effect); err != nil {
-		return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	}
-	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 }
 
 func (deadlineDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {

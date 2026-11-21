@@ -9,16 +9,16 @@ import (
 
 func TestDrainingProcessDoesNotAdvertiseUnanswerableWait(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
-	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`))), replayNever))
 	entered, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
 	// The dispatch ignores cancellation, so the canceled process drains until
 	// the job returns.
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		close(entered)
 		<-release
 		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
-	}}
+	})
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.draining_wait"), step: func(context.Context, Turn) (Transition, error) {
 		return Yield(0, []Effect{effect}, kernelWait())
 	}}
@@ -114,13 +114,13 @@ func TestForegroundRunJoinsDispatchAndRetainsRecoveryIdentity(t *testing.T) {
 	var joined atomic.Bool
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(ctx context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(ctx context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
 		defer joined.Store(true)
 		entered <- request.ID()
 		<-ctx.Done()
 		return Settlement{}, ctx.Err()
-	}}
-	program := lifecycleCallProgram(t, runtime, dispatcher)
+	})
+	program := lifecycleCallProgram(t, runtime, replayNever, dispatcher)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	returned := make(chan error, 1)

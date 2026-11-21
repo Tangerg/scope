@@ -94,12 +94,14 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 		switch record := entry.Record.(type) {
 		case run.Started:
 			programs[record.Process] = record.Program
-		case run.EffectIntent:
-			if record.Effect.Target() != run.EffectTargetDispatcher {
-				continue
-			}
-			if err := projection.intent(record, protocols[programs[record.ID.Process]]); err != nil {
-				return callProjection{}, err
+		case run.Stepped:
+			for _, intent := range record.Intents() {
+				if intent.Effect.Target() != run.EffectTargetDispatcher {
+					continue
+				}
+				if err := projection.intent(intent, protocols[programs[record.Process]]); err != nil {
+					return callProjection{}, err
+				}
 			}
 		case run.EffectSettled:
 			if err := projection.settle(record); err != nil {

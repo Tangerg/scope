@@ -63,21 +63,6 @@ func (d *dispatcher) Dispatch(
 	}
 }
 
-// Sensing is side-effect-free. Action replay authority belongs to its binding.
-func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	envelope, err := decodeEffect(effect.Payload())
-	if err == nil && envelope.operation() == operationSense {
-		return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
-	}
-	policy := run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	if err == nil {
-		if binding, bound := d.definition.binding(envelope.Action.Name); bound && !binding.delegatesToChild() {
-			policy = binding.policy
-		}
-	}
-	return policy
-}
-
 func (d *dispatcher) sense(
 	ctx context.Context,
 	effectID run.EffectID,

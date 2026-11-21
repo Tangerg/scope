@@ -162,13 +162,11 @@ func TestLogRejectsFactsWithoutTheirOwningProcess(t *testing.T) {
 	log := integrityInitialLog(t)
 	started := log.Entries[0].Record.(Started)
 	missing := controlValue(log.Root.Child(controlValue(ParseChildKey("missing"))))
-	effect := controlValue(NewDispatcherEffect(started.Input))
 	id := EffectID{Process: missing, Step: 1}
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failure", "missing process"))
 	for _, record := range []Record{
 		SignalAdmitted{Process: missing, Signal: Signal{ID: controlValue(ParseSignalID("signal")), Payload: started.Input}, At: started.At},
-		Stepped{Process: missing, Step: 1, Transition: controlValue(Continue(0))},
-		EffectIntent{ID: id, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At},
+		Stepped{Process: missing, Step: 1, Transition: controlValue(Continue(0)), At: recordedNow()},
 		EffectSettled{ID: id, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, started.Input)), At: started.At},
 		Exited{Process: missing, Termination: Termination{output: started.Input}, At: started.At},
 		ExecutionFailed{Process: missing, Failure: failure, At: started.At},
@@ -190,14 +188,8 @@ func TestLogRejectsProgressThatDoesNotFollowItsPrefix(t *testing.T) {
 	signal := SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("signal")), Payload: started.Input}, At: started.At}
 	conflict := signal
 	conflict.Signal.Payload = controlValue(EncodePayload("changed"))
-	effect := controlValue(NewDispatcherEffect(started.Input))
-	step := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}))}
-	intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}
-	changedIntent := intent
-	changedIntent.Effect = controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`"changed"`)))))
-	escalated := intent
-	escalated.Policy.RequiredCapabilities = controlValue(NewCapabilitySet(controlValue(ParseCapability("files.write"))))
-	complete := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input))}
+	escalated := controlValue(NewDispatcherEffect(started.Input, EffectPolicy{Replay: ReplayPolicyNever, RequiredCapabilities: controlValue(NewCapabilitySet(controlValue(ParseCapability("files.write"))))}))
+	complete := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input)), At: recordedNow()}
 	failure := ExecutionFailed{Process: log.Root, Failure: controlValue(NewFailure(FailureKindExecution, "test.failure", "rejected")), At: started.At}
 	pause := ControlRequested{Origin: ControlOriginHost, Process: log.Root, Kind: ControlPause, Reason: "hold", At: started.At}
 	resume := ControlRequested{Origin: ControlOriginHost, Process: log.Root, Kind: ControlResume, At: started.At}
@@ -209,13 +201,9 @@ func TestLogRejectsProgressThatDoesNotFollowItsPrefix(t *testing.T) {
 		{"repeated signal", []Record{signal, signal}},
 		{"conflicting signal", []Record{signal, conflict}},
 		{"signal after terminal intent", []Record{complete, signal}},
-		{"step skipped", []Record{Stepped{Process: log.Root, Step: 2, Transition: controlValue(Continue(0))}}},
-		{"message never delivered", []Record{Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Continue(1))}}},
-		{"intent without step", []Record{intent}},
-		{"intent differs from step", []Record{step, changedIntent}},
-		{"repeated intent", []Record{step, intent, intent}},
-		{"intent exceeds capabilities", []Record{step, escalated}},
-		{"next step before intents", []Record{step, Stepped{Process: log.Root, Step: 2, Transition: controlValue(Continue(0))}}},
+		{"step skipped", []Record{Stepped{Process: log.Root, Step: 2, Transition: controlValue(Continue(0)), At: recordedNow()}}},
+		{"message never delivered", []Record{Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Continue(1)), At: recordedNow()}}},
+		{"effect exceeds capabilities", []Record{Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{escalated})), At: recordedNow()}}},
 		{"failure after terminal intent", []Record{complete, failure}},
 		{"repeated failure", []Record{failure, failure}},
 		{"repeated pause", []Record{pause, pause}},
@@ -258,7 +246,7 @@ func TestPersistedAnswersCannotInventOrReuseAWait(t *testing.T) {
 	started := log.Entries[0].Record.(Started)
 	wait := kernelWait()
 	wait.MaxAnswerBytes = 2
-	yield := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, nil, wait))}
+	yield := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, nil, wait)), At: recordedNow()}
 	answer := SignalAdmitted{Process: log.Root, Signal: answerSignal(wait.Key, controlValue(EncodePayload(1))), At: started.At}
 	for _, test := range []struct {
 		name    string
@@ -267,7 +255,7 @@ func TestPersistedAnswersCannotInventOrReuseAWait(t *testing.T) {
 		{"wait never declared", []Record{answer}},
 		{"answer exceeds byte limit", []Record{yield, SignalAdmitted{Process: log.Root, Signal: answerSignal(wait.Key, controlValue(EncodePayload(100))), At: started.At}}},
 		{"answer violates schema", []Record{yield, SignalAdmitted{Process: log.Root, Signal: answerSignal(wait.Key, controlValue(EncodePayload(""))), At: started.At}}},
-		{"answered wait reused", []Record{yield, answer, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, nil, wait))}}},
+		{"answered wait reused", []Record{yield, answer, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, nil, wait)), At: recordedNow()}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := integrityAppend(log, test.records...).Validate(); !errors.Is(err, ErrInvalidLog) {
@@ -283,10 +271,9 @@ func TestPersistedWorkCannotSpendUnfundedBudgets(t *testing.T) {
 		started := log.Entries[0].Record.(Started)
 		started.Budget = budget
 		log.Entries[0].Record = started
-		effect := controlValue(NewDispatcherEffect(started.Input))
-		step := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}))}
-		intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}
-		if err := integrityAppend(log, step, intent).Validate(); !errors.Is(err, ErrResourceLimitExceeded) {
+		effect := controlValue(NewDispatcherEffect(started.Input, replayNever))
+		step := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect})), At: recordedNow()}
+		if err := integrityAppend(log, step).Validate(); !errors.Is(err, ErrResourceLimitExceeded) {
 			t.Fatalf("persisted work escaped accepted budgets: %+v %v", budget, err)
 		}
 		if budget.Messages.limited {

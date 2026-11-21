@@ -12,7 +12,7 @@ func TestInvalidBindingsCannotStartDurableWork(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
 	definition := &treeFixtureDefinition{descriptor: kernelDescriptor(t, "test.binding")}
 	var nilDefinition *treeFixtureDefinition
-	var nilDispatcher *boundaryDispatcher
+	var nilDispatcher *capabilityTestDispatcher
 	for _, test := range []struct {
 		name     string
 		compiler *Compiler

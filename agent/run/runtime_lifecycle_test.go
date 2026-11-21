@@ -27,9 +27,9 @@ func lifecycleEchoProgram(t testing.TB, runtime *Runtime, name string) Program[i
 	return controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
 }
 
-func lifecycleCallProgram(t testing.TB, runtime *Runtime, dispatcher Dispatcher) Program[int, int] {
+func lifecycleCallProgram(t testing.TB, runtime *Runtime, policy EffectPolicy, dispatcher Dispatcher) Program[int, int] {
 	t.Helper()
-	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`))), policy))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.lifecycle.call"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
 			return Yield(0, []Effect{effect})
@@ -57,11 +57,11 @@ func TestKillExitsWithItsUncertaintyRetained(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	var calls atomic.Int32
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		calls.Add(1)
 		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
-	}}
-	program := lifecycleCallProgram(t, runtime, dispatcher)
+	})
+	program := lifecycleCallProgram(t, runtime, replaySameIdentity, dispatcher)
 	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
@@ -110,7 +110,7 @@ func TestKillExitsWithItsUncertaintyRetained(t *testing.T) {
 		t.Fatalf("checkpoint lost the exited process's Unknown Effect: %+v", restored)
 	}
 	replacement := kernelRuntime(t, Config{Store: store})
-	recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, dispatcher), handle.ID()))
+	recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, replaySameIdentity, dispatcher), handle.ID()))
 	if result := controlValue(recovered.Await(ctx)); result.Termination().Status() != StatusKilled || calls.Load() != 1 {
 		t.Fatalf("recovery replayed killed work or changed its Exit: %+v calls=%d", result.Termination(), calls.Load())
 	}
@@ -517,11 +517,11 @@ func TestRuntimeErrorPreservesStoreCauseAndAcknowledgedCoordinates(t *testing.T)
 			fault := &lifecycleFaultStore{store: store, kind: RecordKindEffectSettled, cause: cause, commitFirst: commitFirst}
 			runtime := kernelRuntime(t, Config{Store: fault})
 			var calls atomic.Int32
-			dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+			dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				calls.Add(1)
 				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
-			}}
-			program := lifecycleCallProgram(t, runtime, dispatcher)
+			})
+			program := lifecycleCallProgram(t, runtime, replayNever, dispatcher)
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
@@ -550,7 +550,7 @@ func TestRuntimeErrorPreservesStoreCauseAndAcknowledgedCoordinates(t *testing.T)
 				t.Fatalf("acknowledged head=%d durable head=%d", runtimeErr.After(), log.Head())
 			}
 			replacement := kernelRuntime(t, Config{Store: store})
-			recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, dispatcher), handle.ID()))
+			recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, replayNever, dispatcher), handle.ID()))
 			if !commitFirst {
 				id := lifecycleUnknown(t, ctx, recovered)
 				if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
@@ -609,12 +609,12 @@ func TestRejectedSignalDoesNotClaimAcceptanceWhileTheWriterDrains(t *testing.T) 
 	entered, release := make(chan struct{}), make(chan struct{})
 	var released sync.Once
 	defer released.Do(func() { close(release) })
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		close(entered)
 		<-release
 		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`0`))))
-	}}
-	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
+	})
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`))), replayNever))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.admission_failure"), step: func(context.Context, Turn) (Transition, error) {
 		return Yield(0, []Effect{effect}, kernelWait())
 	}}
@@ -965,7 +965,7 @@ func TestTerminationWaitsForAnInFlightReplay(t *testing.T) {
 	runtime := kernelRuntime(t, Config{Store: store})
 	var calls atomic.Int32
 	replaying, release := make(chan struct{}), make(chan struct{})
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		if calls.Add(1) == 1 {
 			return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
 		}
@@ -974,8 +974,8 @@ func TestTerminationWaitsForAnInFlightReplay(t *testing.T) {
 		close(replaying)
 		<-release
 		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
-	}}
-	program := lifecycleCallProgram(t, runtime, dispatcher)
+	})
+	program := lifecycleCallProgram(t, runtime, replaySameIdentity, dispatcher)
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))

@@ -14,7 +14,6 @@ func runRuntimeConformance(t *testing.T, factory func(*testing.T) run.Store) {
 	t.Run("start retries do not activate another writer", func(t *testing.T) { checkStartRetry(t, factory(t)) })
 	t.Run("signal receipts survive recovery", func(t *testing.T) { checkSignalReceiptRecovery(t, factory(t)) })
 	t.Run("closing joins in-flight root admissions", func(t *testing.T) { checkCloseDuringStart(t, factory(t)) })
-	t.Run("settled effect intent cannot be repeated", func(t *testing.T) { checkRepeatedEffectIntent(t, factory(t)) })
 	t.Run("initial record respects its declared byte bound", func(t *testing.T) { checkInitialRecordLimit(t, factory(t)) })
 	t.Run("loads cannot substitute another root", func(t *testing.T) { checkLoadRootIsolation(t, factory(t)) })
 	t.Run("canceling uncertainty exits with the outcome still unknown", func(t *testing.T) { checkUnresolvedCancellation(t, factory(t)) })
@@ -186,33 +185,6 @@ func checkCloseDuringStart(t *testing.T, store run.Store) {
 	}
 }
 
-func checkRepeatedEffectIntent(t *testing.T, store run.Store) {
-	runtime, program := recoveryRuntime(t, store, newRecoveryDefinition(t, recoveryEffect), conformanceDispatcher(t, run.ReplayPolicyNever))
-	handle, err := runtime.Start(t.Context(), program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "runtest", Key: "repeated-intent"}, Input: conformanceInput(t)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, awaitErr := handle.Await(t.Context()); awaitErr != nil {
-		t.Fatal(awaitErr)
-	}
-	log := loadStoreLog(t, store, handle.ID())
-	var intent run.EffectIntent
-	for index, entry := range log.Entries {
-		switch record := entry.Record.(type) {
-		case run.EffectIntent:
-			intent = record
-		case run.EffectSettled:
-			prefix := append([]run.Entry(nil), log.Entries[:index+1]...)
-			prefix = append(prefix, run.Entry{LSN: entry.LSN + 1, Epoch: entry.Epoch, Record: intent})
-			if validateErr := (run.Log{Root: log.Root, Entries: prefix}).Validate(); !errors.Is(validateErr, run.ErrInvalidLog) {
-				t.Fatalf("settled effect accepted a second intent: %v", validateErr)
-			}
-			return
-		}
-	}
-	t.Fatal("effect fixture emitted no settlement")
-}
-
 func checkInitialRecordLimit(t *testing.T, store run.Store) {
 	const recordLimit = 1024
 	runtime, err := run.New(t.Context(), run.Config{Build: conformanceBuild, Store: store, TreeLimits: run.TreeLimits{MaxRecordBytes: run.NewQuota(recordLimit)}})
@@ -277,7 +249,7 @@ func (r redirectedStore) Read(ctx context.Context, _ run.ProcessID, after run.LS
 }
 
 func checkUnresolvedCancellation(t *testing.T, store run.Store) {
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Settlement: conformanceSettlement(t, run.SettlementStatusUnknown, nil)}}})
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{Calls: []ScriptedCall{{Settlement: conformanceSettlement(t, run.SettlementStatusUnknown, nil)}}})
 	if err != nil {
 		t.Fatal(err)
 	}

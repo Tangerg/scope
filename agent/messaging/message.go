@@ -23,7 +23,9 @@ func (m Message) Valid() bool {
 }
 
 // Effect freezes the message as one external operation. Multiple recipients
-// require independent Effects and independently visible settlements.
+// require independent Effects and independently visible settlements. Delivery
+// may repeat under the Effect's identity because the recipient admits each
+// SignalID once, and that SignalID derives from the Effect.
 func (m Message) Effect() (run.Effect, error) {
 	if !m.Valid() {
 		return run.Effect{}, ErrInvalidMessage
@@ -32,7 +34,7 @@ func (m Message) Effect() (run.Effect, error) {
 	if err != nil {
 		return run.Effect{}, err
 	}
-	return run.NewDispatcherEffect(payload)
+	return run.NewDispatcherEffect(payload, run.EffectPolicy{Replay: run.ReplayPolicySameIdentity})
 }
 
 // messageSignalPrefix is persisted in recipient receipts and replay identities.

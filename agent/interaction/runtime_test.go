@@ -54,6 +54,17 @@ func (s scriptTool) AdvertiseDeferred(ctx context.Context, input tool.Invocation
 	return s.advertise(ctx, input, result)
 }
 
+// loggedIntents returns the Effects the log's Steps declared, in log order.
+func loggedIntents(log run.Log) []run.EffectIntent {
+	var intents []run.EffectIntent
+	for _, entry := range log.Entries {
+		if step, ok := entry.Record.(run.Stepped); ok {
+			intents = append(intents, step.Intents()...)
+		}
+	}
+	return intents
+}
+
 func mustValue[T any](value T, err error) T {
 	if err != nil {
 		panic(err)
@@ -221,14 +232,14 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	starts := 0
 	var intents []run.EffectID
 	for _, entry := range log.Entries {
-		switch record := entry.Record.(type) {
-		case run.Started:
+		if _, ok := entry.Record.(run.Started); ok {
 			starts++
-		case run.EffectIntent:
-			intents = append(intents, record.ID)
-			if record.ID.Process != handle.ID() || record.Effect.Target() != run.EffectTargetDispatcher {
-				t.Fatal("ordinary tool allocated a child lifecycle")
-			}
+		}
+	}
+	for _, record := range loggedIntents(log) {
+		intents = append(intents, record.ID)
+		if record.ID.Process != handle.ID() || record.Effect.Target() != run.EffectTargetDispatcher {
+			t.Fatal("ordinary tool allocated a child lifecycle")
 		}
 	}
 	if starts != 1 || len(intents) != 4 {
@@ -449,12 +460,10 @@ func TestAdmissionRejectsWholeProposalBeforeAnyToolEffect(t *testing.T) {
 	if called.Load() {
 		t.Fatal("valid prefix executed before later invalid proposal")
 	}
-	for _, entry := range completedLog(t, store, handle.ID()).Entries {
-		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			_, toolCall, err := ToolCallFromEffect(intent.Effect)
-			if err != nil || toolCall {
-				t.Fatalf("rejected proposal emitted tool intent: %v", err)
-			}
+	for _, intent := range loggedIntents(completedLog(t, store, handle.ID())) {
+		_, toolCall, err := ToolCallFromEffect(intent.Effect)
+		if err != nil || toolCall {
+			t.Fatalf("rejected proposal emitted tool intent: %v", err)
 		}
 	}
 }

@@ -27,8 +27,8 @@ func TestEmptyCapabilitySetHasOneArrayRepresentation(t *testing.T) {
 
 func TestRuntimeEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	required, _ := ParseCapability("resource.read")
-	definition := newCapabilityTestDefinition(t)
-	dispatcher := &capabilityTestDispatcher{required: required}
+	definition := newCapabilityTestDefinition(t, required)
+	dispatcher := &capabilityTestDispatcher{}
 	compilerRuntime := controlValue(New(t.Context(), Config{Store: NewMemoryStore(), Build: "test"}))
 	program, err := Bind[Payload, Payload](compilerRuntime.Compiler(), BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
@@ -74,11 +74,13 @@ func TestRuntimeEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	}
 }
 
+// capabilityTestDefinition declares one required capability for its Effect.
 type capabilityTestDefinition struct {
 	descriptor Descriptor
+	required   Capability
 }
 
-func newCapabilityTestDefinition(t *testing.T) *capabilityTestDefinition {
+func newCapabilityTestDefinition(t *testing.T, required Capability) *capabilityTestDefinition {
 	t.Helper()
 	inputSchema, _ := jsonschema.For[struct{}]()
 	outputSchema, _ := jsonschema.For[struct{}]()
@@ -89,7 +91,7 @@ func newCapabilityTestDefinition(t *testing.T) *capabilityTestDefinition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &capabilityTestDefinition{descriptor: descriptor}
+	return &capabilityTestDefinition{descriptor: descriptor, required: required}
 }
 
 func (c *capabilityTestDefinition) Descriptor() Descriptor { return c.descriptor }
@@ -97,7 +99,7 @@ func (c *capabilityTestDefinition) Descriptor() Descriptor { return c.descriptor
 func (*capabilityTestDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (c *capabilityTestDefinition) Start(Payload) (Execution, error) {
-	return &capabilityTestExecution{}, nil
+	return &capabilityTestExecution{required: c.required}, nil
 }
 
 func (c *capabilityTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
@@ -105,16 +107,18 @@ func (c *capabilityTestDefinition) Restore(ctx context.Context, state ExecutionS
 	if err != nil {
 		return nil, err
 	}
-	return &capabilityTestExecution{phase: phase}, nil
+	return &capabilityTestExecution{phase: phase, required: c.required}, nil
 }
 
 type capabilityTestExecution struct {
-	phase uint8
+	phase    uint8
+	required Capability
 }
 
 func (c *capabilityTestExecution) Step(context.Context, Turn) (Transition, error) {
 	if c.phase == 0 {
-		effect, err := NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`{}`))))
+		policy := EffectPolicy{Replay: ReplayPolicyNever, RequiredCapabilities: controlValue(NewCapabilitySet(c.required))}
+		effect, err := NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`{}`))), policy)
 		if err != nil {
 			return Transition{}, err
 		}
@@ -130,10 +134,8 @@ func (c *capabilityTestExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.capability", c.phase)
 }
 
-// capabilityTestDispatcher declares one required capability for every Effect.
 type capabilityTestDispatcher struct {
-	required Capability
-	calls    atomic.Int32
+	calls atomic.Int32
 }
 
 func (c *capabilityTestDispatcher) Dispatch(
@@ -143,8 +145,4 @@ func (c *capabilityTestDispatcher) Dispatch(
 ) (Settlement, error) {
 	c.calls.Add(1)
 	return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`{}`))))
-}
-
-func (c *capabilityTestDispatcher) Policy(Effect) EffectPolicy {
-	return EffectPolicy{Replay: ReplayPolicyNever, RequiredCapabilities: controlValue(NewCapabilitySet(c.required))}
 }

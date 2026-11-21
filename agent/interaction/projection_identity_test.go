@@ -16,13 +16,7 @@ func replaceLoggedEffect(t *testing.T, log run.Log, id run.EffectID, effect run.
 	t.Helper()
 	copy := mustValue(log.Clone())
 	for index, entry := range copy.Entries {
-		switch record := entry.Record.(type) {
-		case run.EffectIntent:
-			if record.ID == id {
-				record.Effect = effect
-				copy.Entries[index].Record = record
-			}
-		case run.Stepped:
+		if record, ok := entry.Record.(run.Stepped); ok {
 			if record.Process != id.Process || record.Step != id.Step {
 				continue
 			}
@@ -60,7 +54,7 @@ func replaceLoggedOutcome(t *testing.T, log run.Log, id run.EffectID, outcome ru
 func requestFromIntentPrefix(t *testing.T, log run.Log, id run.EffectID) run.EffectRequest {
 	t.Helper()
 	for index, entry := range log.Entries {
-		if intent, ok := entry.Record.(run.EffectIntent); ok && intent.ID == id {
+		if step, ok := entry.Record.(run.Stepped); ok && step.Process == id.Process && step.Step == id.Step {
 			log.Entries = log.Entries[:index+1]
 			view := mustValue(log.Inspect())
 			process, found := view.Process(id.Process)
@@ -90,11 +84,9 @@ func TestOneProviderCallCannotAcquireTwoInitialEffectOwners(t *testing.T) {
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
 	var intents []run.EffectIntent
-	for _, entry := range log.Entries {
-		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			if _, recognized, _ := ToolCallFromEffect(intent.Effect); recognized {
-				intents = append(intents, intent)
-			}
+	for _, intent := range loggedIntents(log) {
+		if _, recognized, _ := ToolCallFromEffect(intent.Effect); recognized {
+			intents = append(intents, intent)
 		}
 	}
 	if len(intents) != 2 {
@@ -102,7 +94,7 @@ func TestOneProviderCallCannotAcquireTwoInitialEffectOwners(t *testing.T) {
 	}
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	for _, resume := range []*toolResume{nil, {Reference: intents[0].ID, InputRequest: question, InputResponse: []byte(`true`)}} {
-		changed := mustValue(toolDispatchRequest{Call: requested("echo", "first"), Resume: resume}.effect())
+		changed := mustValue(toolDispatchRequest{Call: requested("echo", "first"), Resume: resume}.effect(toolManifest{}))
 		corrupt := replaceLoggedEffect(t, log, intents[1].ID, changed)
 		assertProjectionRejection(t, program, corrupt)
 	}
@@ -136,8 +128,8 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
 	var intent run.EffectIntent
-	for _, entry := range log.Entries {
-		if candidate, ok := entry.Record.(run.EffectIntent); ok && candidate.Effect.Target() == run.EffectTargetDispatcher {
+	for _, candidate := range loggedIntents(log) {
+		if candidate.Effect.Target() == run.EffectTargetDispatcher {
 			envelope := mustValue(decodeEffect(candidate.Effect.Payload()))
 			if envelope.ToolCall != nil && envelope.ToolCall.Resume != nil {
 				intent = candidate
@@ -159,7 +151,7 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 	} {
 		envelope := mustValue(decodeEffect(intent.Effect.Payload()))
 		change(envelope.ToolCall)
-		effect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope))))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope)), unrepeatable))
 		assertProjectionRejection(t, program, replaceLoggedEffect(t, log, intent.ID, effect))
 	}
 }
@@ -181,8 +173,8 @@ func TestDelegateIntentProjectionRequiresTheExactDeclaredBinding(t *testing.T) {
 	handle := startInteraction(t, runtime, program)
 	var intent run.EffectIntent
 	log := awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		for _, entry := range log.Entries {
-			if candidate, ok := entry.Record.(run.EffectIntent); ok && candidate.Effect.Target() == run.EffectTargetFramework {
+		for _, candidate := range loggedIntents(log) {
+			if candidate.Effect.Target() == run.EffectTargetFramework {
 				intent = candidate
 				return true
 			}
@@ -269,13 +261,11 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
 	var model, invocation run.EffectIntent
-	for _, entry := range log.Entries {
-		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			if _, isTool, _ := ToolCallFromEffect(intent.Effect); isTool {
-				invocation = intent
-			} else if _, isModel, _ := ModelCallFromEffect(intent.Effect); isModel {
-				model = intent
-			}
+	for _, intent := range loggedIntents(log) {
+		if _, isTool, _ := ToolCallFromEffect(intent.Effect); isTool {
+			invocation = intent
+		} else if _, isModel, _ := ModelCallFromEffect(intent.Effect); isModel {
+			model = intent
 		}
 	}
 	for _, row := range []struct {
@@ -286,7 +276,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 		{requested("foreign", "call"), false},
 		{chat.ToolCall{ID: "call", Name: "echo", Arguments: `{"changed":true}`}, false},
 	} {
-		effect := mustValue(toolDispatchRequest{Call: row.call}.effect())
+		effect := mustValue(toolDispatchRequest{Call: row.call}.effect(toolManifest{}))
 		changed := replaceLoggedEffect(t, log, invocation.ID, effect)
 		assertProjectionRejection(t, program, changed)
 		request := requestFromIntentPrefix(t, changed, invocation.ID)
@@ -299,7 +289,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 			t.Fatal("investigated result bypassed the captured tool contract", err)
 		}
 	}
-	malformed := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(`{"unknown_operation":true}`)))))
+	malformed := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(`{"unknown_operation":true}`))), unrepeatable))
 	malformedLog := replaceLoggedEffect(t, log, invocation.ID, malformed)
 	assertProjectionRejection(t, program, malformedLog)
 	malformedRequest := requestFromIntentPrefix(t, malformedLog, invocation.ID)
@@ -322,7 +312,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 	if _, err := SettleToolResult(program, modelRequest, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("model request acquired tool recovery authority", err)
 	}
-	beforeProposal := mustValue(toolDispatchRequest{Call: requested("echo", "call")}.effect())
+	beforeProposal := mustValue(toolDispatchRequest{Call: requested("echo", "call")}.effect(toolManifest{}))
 	assertProjectionRejection(t, program, replaceLoggedEffect(t, log, model.ID, beforeProposal))
 	for _, wire := range []string{
 		`{}`,

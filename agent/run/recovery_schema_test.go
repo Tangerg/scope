@@ -109,7 +109,7 @@ func TestRecoveryAdmitsSignalsThroughTheirOwnContract(t *testing.T) {
 						signal.Wait, signal.Payload = kernelWait().Key, controlValue(EncodePayload(42))
 						waits[0].Pending = false
 					}
-					records := []Record{started, Activated{Epoch: 1}, Stepped{Process: root, Step: 1, Transition: waiting}, SignalAdmitted{Process: root, Signal: signal, At: started.At}}
+					records := []Record{started, Activated{Epoch: 1}, Stepped{Process: root, Step: 1, Transition: waiting, At: recordedNow()}, SignalAdmitted{Process: root, Signal: signal, At: started.At}}
 					if checkpointed {
 						records = append(records, Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{
 							Started: started, State: controlValue(EncodeExecutionState("test.boundary", 0)), Inbox: Inbox{signal},
@@ -150,7 +150,7 @@ func TestRecoveryAdmitsEachTerminalVariant(t *testing.T) {
 			records := []Record{started, Activated{Epoch: 1}}
 			switch test.termination.Status() {
 			case StatusCompleted:
-				records = append(records, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input))})
+				records = append(records, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input)), At: recordedNow()})
 				checkpoint.Processes[0].Usage.CommittedSteps = 1
 			case StatusFailed:
 				records = append(records, ExecutionFailed{Process: log.Root, Failure: test.termination.failure, At: started.At})

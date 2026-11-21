@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
@@ -18,7 +19,7 @@ func TestModelAliasBindsOneExactToolIdentity(t *testing.T) {
 		}
 		return value
 	}
-	dispatcher := newToolDispatcher()
+	dispatcher := newToolDispatcher(agentrun.CapabilitySet{})
 	if err := dispatcher.bindTool(makeTool("report.write"), false); err != nil {
 		t.Fatal(err)
 	}

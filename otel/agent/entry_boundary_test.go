@@ -17,7 +17,7 @@ func TestObservationRejectsInvalidRecordsBeforeProjection(t *testing.T) {
 	}
 	for _, record := range []run.Record{
 		nil, (*run.Started)(nil), run.Started{}, run.Activated{}, run.SignalAdmitted{}, run.Stepped{},
-		run.EffectIntent{}, run.EffectSettled{}, run.Exited{}, run.Reaped{}, run.Checkpoint{}, run.ControlRequested{}, run.ExecutionFailed{},
+		run.EffectSettled{}, run.Exited{}, run.Reaped{}, run.Checkpoint{}, run.ControlRequested{}, run.ExecutionFailed{},
 	} {
 		t.Run(fmt.Sprintf("%T", record), func(t *testing.T) {
 			harness := newObserverHarness(t)

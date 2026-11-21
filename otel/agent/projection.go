@@ -64,9 +64,11 @@ func (l *logProjection) apply(ctx context.Context, entry run.Entry) error {
 	switch fact := entry.Record.(type) {
 	case run.Started:
 		l.startProcess(ctx, entry, fact)
-	case run.Stepped, run.SignalAdmitted:
-	case run.EffectIntent:
-		l.startEffect(ctx, entry, fact)
+	case run.Stepped:
+		for _, intent := range fact.Intents() {
+			l.startEffect(ctx, entry, intent, fact.At)
+		}
+	case run.SignalAdmitted:
 	case run.EffectSettled:
 		l.settleEffect(ctx, entry, fact)
 	case run.Exited:
@@ -88,12 +90,10 @@ func (l *logProjection) recordUsage(ctx context.Context, record run.Record) {
 	if usage.CommittedSteps != 0 {
 		l.observer.instruments.steps.Add(ctx, int64(usage.CommittedSteps))
 	}
-	if usage.PreparedEffects != 0 {
-		var options []metric.AddOption
-		if intent, ok := record.(run.EffectIntent); ok {
-			options = append(options, metric.WithAttributes(effectTargetAttribute.String(intent.Effect.Target().String())))
+	if step, ok := record.(run.Stepped); ok {
+		for _, intent := range step.Intents() {
+			l.observer.instruments.effects.Add(ctx, 1, metric.WithAttributes(effectTargetAttribute.String(intent.Effect.Target().String())))
 		}
-		l.observer.instruments.effects.Add(ctx, int64(usage.PreparedEffects), options...)
 	}
 	if usage.AcceptedMessages != 0 {
 		l.observer.instruments.messages.Add(ctx, int64(usage.AcceptedMessages))
@@ -117,15 +117,17 @@ func (l *logProjection) startProcess(ctx context.Context, entry run.Entry, fact 
 	l.observer.instruments.processStarts.Add(ctx, 1, metric.WithAttributes(attributes...))
 }
 
-func (l *logProjection) startEffect(ctx context.Context, entry run.Entry, fact run.EffectIntent) {
+// startEffect opens the span of an Effect its Step declared at the instant the
+// Step was committed.
+func (l *logProjection) startEffect(ctx context.Context, entry run.Entry, fact run.EffectIntent, at time.Time) {
 	if process, ok := l.processes[fact.ID.Process]; ok {
 		ctx = trace.ContextWithSpan(ctx, process.span)
 	}
 	attributes := []attribute.KeyValue{effectTargetAttribute.String(fact.Effect.Target().String())}
 	spanAttributes := append([]attribute.KeyValue{}, attributes...)
 	spanAttributes = append(spanAttributes, effectIDAttribute.String(fact.ID.String()), processIDAttribute.String(fact.ID.Process.String()), uint64Attribute(epochAttribute, uint64(entry.Epoch)), uint64Attribute(lsnAttribute, uint64(entry.LSN)))
-	_, span := l.observer.tracer.Start(ctx, "agent.effect", trace.WithTimestamp(fact.At), trace.WithAttributes(spanAttributes...))
-	l.effects[fact.ID] = observedEffect{observedSpan: observedSpan{span: span, at: fact.At, attributes: attributes}}
+	_, span := l.observer.tracer.Start(ctx, "agent.effect", trace.WithTimestamp(at), trace.WithAttributes(spanAttributes...))
+	l.effects[fact.ID] = observedEffect{observedSpan: observedSpan{span: span, at: at, attributes: attributes}}
 }
 
 func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact run.EffectSettled) {

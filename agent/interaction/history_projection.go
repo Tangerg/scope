@@ -164,8 +164,13 @@ func (h *historyProjector) apply(record run.Record) error {
 	case run.Started:
 		h.members[record.Process] = record.Program == h.program
 		return nil
-	case run.EffectIntent:
-		return h.intended(record)
+	case run.Stepped:
+		for _, intent := range record.Intents() {
+			if err := h.intended(intent); err != nil {
+				return err
+			}
+		}
+		return nil
 	case run.EffectSettled:
 		return h.settled(record)
 	case run.Exited:

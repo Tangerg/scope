@@ -22,7 +22,7 @@ func TestAwaitCancellationAtTheLocalResultBoundary(t *testing.T) {
 				process := state.processes[log.Root]
 				handle := &Handle[string]{tree: tree, process: process, id: log.Root, epoch: state.epoch}
 				terminal := Termination{output: process.started.Input}
-				var decision Record = Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, terminal.output))}
+				var decision Record = Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, terminal.output)), At: recordedNow()}
 				if canceled {
 					terminal = Termination{cause: TerminationCauseHostCancellation, reason: "host canceled"}
 					decision = ControlRequested{Process: log.Root, Origin: ControlOriginHost, Kind: ControlCancel, Reason: terminal.reason, At: process.started.At}

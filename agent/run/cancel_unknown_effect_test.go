@@ -53,15 +53,11 @@ func (e externalCallExecution) Step(_ context.Context, turn run.Turn) (run.Trans
 	return run.Complete(uint32(len(turn.Messages)), output)
 }
 
-// blockingDispatcher never settles on its own: the Effect it starts may not
-// repeat, and its outcome reaches the log only if the writer survives.
+// blockingDispatcher never settles on its own, so the outcome of the Effect it
+// starts reaches the log only if the writer survives.
 type blockingDispatcher struct {
 	entered chan run.EffectID
 	calls   *atomic.Int32
-}
-
-func (blockingDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
 
 func (b blockingDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
@@ -93,7 +89,7 @@ func (l *lostCancelAcknowledgement) Append(ctx context.Context, batch run.Batch)
 	return l.Store.Append(ctx, batch)
 }
 
-func externalCallProgram(t *testing.T, runtime *run.Runtime, dispatcher run.Dispatcher) run.Program[int, int] {
+func externalCallProgram(t *testing.T, runtime *run.Runtime, replay run.ReplayPolicy, dispatcher run.Dispatcher) run.Program[int, int] {
 	t.Helper()
 	schema, err := jsonschema.For[int]()
 	if err != nil {
@@ -107,7 +103,7 @@ func externalCallProgram(t *testing.T, runtime *run.Runtime, dispatcher run.Disp
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err := run.NewDispatcherEffect(payload)
+	effect, err := run.NewDispatcherEffect(payload, run.EffectPolicy{Replay: replay})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +126,7 @@ func TestRecoveredCancellationExitsWithItsEffectStillUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	program := externalCallProgram(t, original, dispatcher)
+	program := externalCallProgram(t, original, run.ReplayPolicyNever, dispatcher)
 	handle, err := original.Start(ctx, program, run.StartRequest[int]{ID: run.StartID{Scope: "test", Key: "cancel-unknown"}})
 	if err != nil {
 		t.Fatal(err)
@@ -179,9 +175,9 @@ func TestRecoveredCancellationExitsWithItsEffectStillUnknown(t *testing.T) {
 			if record.Epoch == recovered.Epoch() {
 				recovery = entry.LSN
 			}
-		case run.EffectIntent:
+		case run.Stepped:
 			if recovery != 0 {
-				recoveredIntents++
+				recoveredIntents += len(record.Intents())
 			}
 		case run.EffectSettled:
 			if record.ID != effect || record.Outcome.Status() != run.SettlementStatusUnknown {
@@ -216,10 +212,6 @@ func TestRecoveredCancellationExitsWithItsEffectStillUnknown(t *testing.T) {
 
 type unknownDispatcher struct{}
 
-func (unknownDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
-}
-
 func (unknownDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEmitter) (run.Settlement, error) {
 	null, err := run.ParsePayload([]byte(`null`))
 	if err != nil {
@@ -236,7 +228,7 @@ func TestExitedProcessAnswersEveryCommandWithProcessFinished(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close(context.WithoutCancel(ctx)) })
-	handle, err := runtime.Start(ctx, externalCallProgram(t, runtime, unknownDispatcher{}), run.StartRequest[int]{ID: run.StartID{Scope: "test", Key: "exited-commands"}})
+	handle, err := runtime.Start(ctx, externalCallProgram(t, runtime, run.ReplayPolicySameIdentity, unknownDispatcher{}), run.StartRequest[int]{ID: run.StartID{Scope: "test", Key: "exited-commands"}})
 	if err != nil {
 		t.Fatal(err)
 	}

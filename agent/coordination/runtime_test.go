@@ -194,7 +194,7 @@ func TestDeadlineUsesSameIdentityTimerAndCompletesAtAbsoluteTime(t *testing.T) {
 		t.Fatal("deadline output changed")
 	}
 	effect := require(newTimerEffect(deadline))
-	if policy := (deadlineDispatcher{}).Policy(effect); policy.Replay != run.ReplayPolicySameIdentity {
+	if policy := effect.Policy(); policy.Replay != run.ReplayPolicySameIdentity {
 		t.Fatal("side-effect-free timer cannot recover")
 	}
 }

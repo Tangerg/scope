@@ -139,14 +139,8 @@ func TestDeadlineValidatesRestoredStateAndExactTimerCompletion(t *testing.T) {
 
 func TestTimerProtocolRejectionAndCancellationAreDefinite(t *testing.T) {
 	dispatcher := deadlineDispatcher{}
-	if dispatcher.Policy(run.Effect{}).Replay != run.ReplayPolicyNever {
-		t.Fatal("invalid timer authorized replay")
-	}
 	for _, raw := range []string{`null`, `{}`, `{"deadline":"not a date"}`, `{"deadline":"2027-01-02T03:04:05Z","unexpected":true}`} {
-		effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw)))))
-		if dispatcher.Policy(effect).Replay != run.ReplayPolicyNever {
-			t.Fatal("malformed timer authorized replay")
-		}
+		effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw))), run.EffectPolicy{Replay: run.ReplayPolicyNever}))
 		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
 	}
 	synctest.Test(t, func(t *testing.T) {

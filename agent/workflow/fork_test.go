@@ -362,7 +362,7 @@ func (m *managedBranchExecution) Step(_ context.Context, turn run.Turn) (run.Tra
 		if err != nil {
 			return run.Transition{}, err
 		}
-		effect, err := run.NewDispatcherEffect(payload)
+		effect, err := run.NewDispatcherEffect(payload, run.EffectPolicy{Replay: run.ReplayPolicyNever})
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -409,8 +409,4 @@ func (m managedBranchDispatcher) Dispatch(
 		return run.Settlement{}, err
 	}
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
-}
-
-func (managedBranchDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }

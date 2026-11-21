@@ -172,8 +172,8 @@ func TestStrategiesDrainCanceledUnknownDelegateSubtrees(t *testing.T) {
 						}
 						unknownAt = entry.LSN
 					}
-				case run.EffectIntent:
-					if record.ID.Process == handle.ID() {
+				case run.Stepped:
+					if record.Process == handle.ID() && len(record.Intents()) != 0 {
 						parentContinuedAt = entry.LSN
 					}
 				case run.Exited:

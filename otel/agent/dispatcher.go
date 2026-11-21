@@ -28,8 +28,4 @@ func (o *observedDispatcher) Dispatch(ctx context.Context, request run.EffectReq
 	return o.next.Dispatch(ctx, request, emit)
 }
 
-func (o *observedDispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	return o.next.Policy(effect)
-}
-
 var _ run.Dispatcher = (*observedDispatcher)(nil)

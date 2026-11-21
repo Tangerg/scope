@@ -62,9 +62,7 @@ func (u Usage) add(other Usage) (Usage, error) {
 func UsageFromRecord(record Record) (ProcessID, Usage) {
 	switch value := record.(type) {
 	case Stepped:
-		return value.Process, Usage{CommittedSteps: 1}
-	case EffectIntent:
-		return value.ID.Process, Usage{PreparedEffects: 1}
+		return value.Process, Usage{CommittedSteps: 1, PreparedEffects: uint64(len(value.Transition.effects))}
 	case SignalAdmitted:
 		return value.Process, Usage{AcceptedMessages: 1}
 	case EffectSettled:

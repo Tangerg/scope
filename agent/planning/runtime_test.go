@@ -133,7 +133,7 @@ func TestPlanningActionUncertaintyIsNotReexecuted(t *testing.T) {
 		for _, pending := range process.PendingEffects {
 			if pending.Outcome.Status() == run.SettlementStatusUnknown {
 				effect = pending.Request.ID()
-				if pending.Policy.Replay != run.ReplayPolicyNever {
+				if pending.Request.Effect().Policy().Replay != run.ReplayPolicyNever {
 					t.Fatal("uncertain action can replay")
 				}
 			}

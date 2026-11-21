@@ -198,19 +198,15 @@ func TestMalformedDispatcherProtocolsFailAtTheCommittedBoundary(t *testing.T) {
 		return nil, errors.New("must not run")
 	}))}))
 	for _, payload := range []string{`{}`, `{"model_call":{}}`, `{"tool_call":{"call":{"id":"call","name":"absent","arguments":"{}"}}}`, `{"prepare_context":{"model_call_sequence":1,"request":{"messages":[{"role":"user","parts":[{"kind":"text","text":"question"}]}]}}}`} {
-		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload)))))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload))), unrepeatable))
 		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
 	}
 	for _, payload := range []string{`{}`, `{"model_call":{}}`} {
-		conformancetest.CheckDispatcherRejection(t, rejectingToolDispatcher{dispatcher: newToolDispatcher()}, mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload))))))
+		conformancetest.CheckDispatcherRejection(t, rejectingToolDispatcher{dispatcher: newToolDispatcher(run.CapabilitySet{})}, mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload))), unrepeatable)))
 	}
 }
 
 type rejectingToolDispatcher struct{ dispatcher *toolDispatcher }
-
-func (r rejectingToolDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-}
 
 func (r rejectingToolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	return r.dispatcher.Dispatch(ctx, request, emit)

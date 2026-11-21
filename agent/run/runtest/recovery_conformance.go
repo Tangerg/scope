@@ -47,16 +47,17 @@ func (r recoveryCut) startLost() bool {
 }
 
 // leavesUnknown reports a dispatch whose result never reached the log, which
-// therefore cannot be known to have failed.
+// therefore cannot be known to have failed. The first Step of the effect
+// fixture is the one that declares its Effect.
 func (r recoveryCut) leavesUnknown() bool {
-	return r.kind == run.RecordKindEffectIntent && r.cut == cutAfterAppend ||
+	return r.kind == run.RecordKindStepped && r.cut == cutAfterAppend ||
 		r.kind == run.RecordKindEffectSettled && r.cut == cutBeforeAppend
 }
 
 // dispatches is the number of dispatches the whole run performs: none when the
-// Program needs no dispatch, or when the cut intent is resolved instead of run.
+// Program needs no dispatch, or when the cut Effect is resolved instead of run.
 func (r recoveryCut) dispatches() int {
-	if r.kind == run.RecordKindStarted || r.kind == run.RecordKindEffectIntent && r.cut == cutAfterAppend {
+	if r.kind == run.RecordKindStarted || r.kind == run.RecordKindStepped && r.cut == cutAfterAppend {
 		return 0
 	}
 	return 1
@@ -129,14 +130,14 @@ func (a *appendBarrier) await(t *testing.T) run.Batch {
 }
 
 func runRecoveryConformance(t *testing.T, factory func(*testing.T) run.Store) {
-	for _, kind := range []run.RecordKind{run.RecordKindStarted, run.RecordKindEffectIntent, run.RecordKindEffectSettled, run.RecordKindExited} {
+	for _, kind := range []run.RecordKind{run.RecordKindStarted, run.RecordKindStepped, run.RecordKindEffectSettled, run.RecordKindExited} {
 		for _, cut := range []appendCut{cutBeforeAppend, cutAfterAppend} {
 			t.Run(fmt.Sprintf("crash %s %s", kind, cut), func(t *testing.T) {
 				checkRecoveryCut(t, factory(t), recoveryCut{kind: kind, cut: cut})
 			})
 		}
 	}
-	t.Run("same identity effects replay after intent", func(t *testing.T) { checkReplayAfterIntent(t, factory(t)) })
+	t.Run("same identity effects replay after their step", func(t *testing.T) { checkReplayAfterStep(t, factory(t)) })
 	t.Run("durable observations survive takeover", func(t *testing.T) { checkObservationRecovery(t, factory(t)) })
 	t.Run("local waits have no handshake", func(t *testing.T) { checkLocalWait(t, factory(t)) })
 	t.Run("nondeterministic replay is rejected", func(t *testing.T) { checkNondeterministicReplay(t, factory(t)) })
@@ -173,7 +174,7 @@ func resolveRetainedUnknown(t *testing.T, recovered *run.Handle[run.Payload], ro
 func checkRecoveryCut(t *testing.T, store run.Store, crash recoveryCut) {
 	gate := newAppendBarrier(store, crash.kind, crash.cut)
 	defer gate.abort()
-	dispatcher := conformanceDispatcher(t, run.ReplayPolicyNever)
+	dispatcher := conformanceDispatcher(t)
 	definition := newRecoveryDefinition(t, recoveryEffect)
 	if crash.kind == run.RecordKindStarted {
 		definition.mode = recoveryComplete
@@ -203,8 +204,8 @@ func checkRecoveryCut(t *testing.T, store run.Store, crash recoveryCut) {
 	if !found {
 		t.Fatal("committed prefix was lost")
 	}
-	if crash.kind == run.RecordKindEffectIntent && len(dispatcher.Requests()) != 0 {
-		t.Fatal("dispatcher ran before intent acknowledgment")
+	if crash.kind == run.RecordKindStepped && len(dispatcher.Requests()) != 0 {
+		t.Fatal("dispatcher ran before its Step was acknowledged")
 	}
 	assertCutHead(t, log, batch, crash.cut)
 	recoverAfterCut(t, store, definition, dispatcher, batch.Root, crash)
@@ -247,11 +248,12 @@ func awaitOriginalCrash(t *testing.T, started <-chan recoveryStart) {
 	}
 }
 
-func checkReplayAfterIntent(t *testing.T, store run.Store) {
-	gate := newAppendBarrier(store, run.RecordKindEffectIntent, cutAfterAppend)
+func checkReplayAfterStep(t *testing.T, store run.Store) {
+	gate := newAppendBarrier(store, run.RecordKindStepped, cutAfterAppend)
 	defer gate.abort()
-	dispatcher := conformanceDispatcher(t, run.ReplayPolicySameIdentity)
+	dispatcher := conformanceDispatcher(t)
 	definition := newRecoveryDefinition(t, recoveryEffect)
+	definition.replay = run.ReplayPolicySameIdentity
 	original, program := recoveryRuntime(t, gate, definition, dispatcher)
 	handle, err := original.Start(t.Context(), program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "runtest", Key: "replay"}, Input: conformanceInput(t)})
 	if err != nil {
@@ -260,12 +262,14 @@ func checkReplayAfterIntent(t *testing.T, store run.Store) {
 	batch := gate.await(t)
 	var intended run.EffectID
 	for _, record := range batch.Records {
-		if intent, ok := record.(run.EffectIntent); ok {
-			intended = intent.ID
+		if step, ok := record.(run.Stepped); ok {
+			for _, intent := range step.Intents() {
+				intended = intent.ID
+			}
 		}
 	}
 	if !intended.Valid() || len(dispatcher.Requests()) != 0 {
-		t.Fatal("intent cut did not precede dispatch")
+		t.Fatal("step cut did not precede dispatch")
 	}
 	recoveredRuntime, recoveredProgram := recoveryRuntime(t, store, definition, dispatcher)
 	recovered, err := recoveredRuntime.Recover(t.Context(), recoveredProgram, handle.ID())
@@ -333,10 +337,10 @@ func checkLocalWait(t *testing.T, store run.Store) {
 	log := loadStoreLog(t, store, handle.ID())
 	steps := 0
 	for _, entry := range log.Entries {
-		switch record := entry.Record.(type) {
-		case run.EffectIntent:
-			t.Fatal("local wait manufactured an effect")
-		case run.Stepped:
+		if record, ok := entry.Record.(run.Stepped); ok {
+			if len(record.Intents()) != 0 {
+				t.Fatal("local wait manufactured an effect")
+			}
 			steps++
 			if record.Step == 1 && record.Delivered != 0 || record.Step == 2 && record.Delivered != 1 {
 				t.Fatalf("wait inbox had handshake messages: %+v", record)
@@ -454,10 +458,10 @@ func recoveryRuntime(t *testing.T, store run.Store, definition *recoveryDefiniti
 	return runtime, program
 }
 
-func conformanceDispatcher(t *testing.T, replay run.ReplayPolicy) *ScriptedDispatcher {
+func conformanceDispatcher(t *testing.T) *ScriptedDispatcher {
 	t.Helper()
 	settlement := conformanceSettlement(t, run.SettlementStatusSucceeded, "result")
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: replay, Calls: []ScriptedCall{{Settlement: settlement}}})
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{Calls: []ScriptedCall{{Settlement: settlement}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +512,9 @@ const (
 type recoveryDefinition struct {
 	descriptor run.Descriptor
 	mode       recoveryMode
-	counter    *atomic.Uint64
+	// replay is the policy the effect fixture declares for its Effect.
+	replay  run.ReplayPolicy
+	counter *atomic.Uint64
 }
 
 func newRecoveryDefinition(t *testing.T, mode recoveryMode) *recoveryDefinition {
@@ -521,7 +527,7 @@ func newRecoveryDefinition(t *testing.T, mode recoveryMode) *recoveryDefinition 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &recoveryDefinition{descriptor: descriptor, mode: mode}
+	return &recoveryDefinition{descriptor: descriptor, mode: mode, replay: run.ReplayPolicyNever}
 }
 
 func (r *recoveryDefinition) Descriptor() run.Descriptor                             { return r.descriptor }
@@ -567,7 +573,7 @@ func (r *recoveryExecution) Step(_ context.Context, turn run.Turn) (run.Transiti
 			if err != nil {
 				return run.Transition{}, err
 			}
-			effect, err := run.NewDispatcherEffect(call)
+			effect, err := run.NewDispatcherEffect(call, run.EffectPolicy{Replay: r.definition.replay})
 			if err != nil {
 				return run.Transition{}, err
 			}

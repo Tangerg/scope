@@ -102,7 +102,8 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		}},
 		{"ungranted effect capability", func(p *ProcessCheckpoint) {
 			pending := checkpointPending(p)
-			pending.Intent.Policy.RequiredCapabilities = controlValue(NewCapabilitySet(controlValue(ParseCapability("test.external"))))
+			policy := EffectPolicy{Replay: ReplayPolicyNever, RequiredCapabilities: controlValue(NewCapabilitySet(controlValue(ParseCapability("test.external"))))}
+			pending.Intent.Effect = controlValue(NewDispatcherEffect(pending.Intent.Effect.Payload(), policy))
 			p.Pending = []PendingCheckpoint{pending}
 		}},
 		{"pending completion", func(p *ProcessCheckpoint) {
@@ -185,8 +186,7 @@ func checkpointPending(p *ProcessCheckpoint) PendingCheckpoint {
 	p.Usage.CommittedSteps, p.Usage.PreparedEffects = 1, 1
 	return PendingCheckpoint{Intent: EffectIntent{
 		ID:     EffectID{Process: p.Started.Process, Step: 1},
-		Effect: controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))))),
-		Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: p.Started.At,
+		Effect: controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))), replayNever)),
 	}}
 }
 
@@ -258,7 +258,7 @@ func TestCheckpointUsageOwnsTheNextStepIdentity(t *testing.T) {
 	}}}
 	state := controlValue(checkpoint.tree(log.Root, Entry{LSN: 20, Epoch: 1, Record: checkpoint}))
 	process := state.processes[log.Root]
-	step := Stepped{Process: log.Root, Step: 8, Transition: controlValue(Yield(0, nil, kernelWait()))}
+	step := Stepped{Process: log.Root, Step: 8, Transition: controlValue(Yield(0, nil, kernelWait())), At: recordedNow()}
 	if err := state.apply(Entry{LSN: state.head + 1, Epoch: state.epoch, Record: step}); err != nil || process.usage.CommittedSteps != 8 {
 		t.Fatalf("recovered usage did not own step admission: usage=%+v error=%v", process.usage, err)
 	}

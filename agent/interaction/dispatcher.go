@@ -74,19 +74,6 @@ func (d *dispatcher) Dispatch(
 	}
 }
 
-// Model and context calls cannot safely replay; each tool declares its own
-// replay safety in its immutable binding.
-func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	policy := run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	envelope, err := decodeEffect(effect.Payload())
-	if err != nil || envelope.ToolCall == nil || !d.tools.Configured() {
-		return policy
-	}
-	policy.Replay = d.tools.replayPolicy(envelope.ToolCall.Call.Name)
-	policy.RequiredCapabilities = d.tools.requiredCapabilities
-	return policy
-}
-
 // dispatchModel sends the request decodeEffect already validated.
 func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit run.DeltaEmitter) (run.Settlement, error) {
 	response, err := d.callModelResponse(ctx, call.request(), emit)

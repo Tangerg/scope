@@ -27,23 +27,32 @@ type Config struct {
 	// settlements stay live.
 	CheckpointInterval uint64
 	StoreTimeout       time.Duration
+	// DispatchMiddlewares decorate every dispatcher Effect of every Program
+	// this Runtime runs, root or child: its first dispatch, its redispatch
+	// during recovery, and ReplayUnknownEffect. Framework Effects, such as a
+	// child start, are not dispatched and never reach them. The first is
+	// outermost and nil entries are skipped. The Runtime applies them for each
+	// dispatch, so state shared across dispatches lives outside the Dispatcher
+	// a middleware returns.
+	DispatchMiddlewares []DispatchMiddleware
 }
 
 type Runtime struct {
-	store              Store
-	compiler           *Compiler
-	resolver           ProgramResolver
-	admitter           ProcessAdmitter
-	deltas             chan<- Delta
-	budget             Budget
-	limits             TreeLimits
-	capabilities       CapabilitySet
-	checkpointInterval uint64
-	storeTimeout       time.Duration
-	mu                 sync.RWMutex
-	roots              map[ProcessID]*treeRuntime
-	starting           map[ProcessID]*startup
-	closeDone          chan struct{}
+	store               Store
+	compiler            *Compiler
+	resolver            ProgramResolver
+	admitter            ProcessAdmitter
+	deltas              chan<- Delta
+	budget              Budget
+	limits              TreeLimits
+	capabilities        CapabilitySet
+	checkpointInterval  uint64
+	storeTimeout        time.Duration
+	dispatchMiddlewares []DispatchMiddleware
+	mu                  sync.RWMutex
+	roots               map[ProcessID]*treeRuntime
+	starting            map[ProcessID]*startup
+	closeDone           chan struct{}
 }
 
 func New(ctx context.Context, config Config) (*Runtime, error) {
@@ -65,7 +74,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if timeout == 0 {
 		timeout = defaultStoreTimeout
 	}
-	return &Runtime{store: config.Store, compiler: &Compiler{build: config.Build}, resolver: config.ProgramResolver, admitter: config.ProcessAdmitter, deltas: config.Deltas, budget: config.Budget, limits: limits, capabilities: config.Capabilities, checkpointInterval: interval, storeTimeout: timeout, roots: make(map[ProcessID]*treeRuntime), starting: make(map[ProcessID]*startup)}, nil
+	return &Runtime{store: config.Store, compiler: &Compiler{build: config.Build}, resolver: config.ProgramResolver, admitter: config.ProcessAdmitter, deltas: config.Deltas, budget: config.Budget, limits: limits, capabilities: config.Capabilities, checkpointInterval: interval, storeTimeout: timeout, dispatchMiddlewares: slices.Clone(config.DispatchMiddlewares), roots: make(map[ProcessID]*treeRuntime), starting: make(map[ProcessID]*startup)}, nil
 }
 
 func (r *Runtime) Compiler() *Compiler {

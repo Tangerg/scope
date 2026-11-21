@@ -128,7 +128,7 @@ func (p ProcessCheckpoint) waitsAndReceiptsValid() bool {
 func (p ProcessCheckpoint) pendingValid() bool {
 	for index, pending := range p.Pending {
 		id := pending.Intent.ID
-		if !pending.valid() || id.Process != p.Started.Process || id.Step > p.Usage.CommittedSteps || uint64(id.Index) >= p.Usage.PreparedEffects || p.Started.permits(pending.Intent.Policy) != nil || index > 0 && p.Pending[index-1].Intent.ID.Compare(id) >= 0 {
+		if !pending.valid() || id.Process != p.Started.Process || id.Step > p.Usage.CommittedSteps || uint64(id.Index) >= p.Usage.PreparedEffects || p.Started.permits(pending.Intent.Effect.Policy()) != nil || index > 0 && p.Pending[index-1].Intent.ID.Compare(id) >= 0 {
 			return false
 		}
 	}
@@ -295,11 +295,11 @@ func (p PendingCheckpoint) valid() bool {
 	if p.Outcome == nil {
 		return p.Failure == nil
 	}
-	return p.Intent.Effect.Target() == EffectTargetDispatcher && p.Outcome.Status() == SettlementStatusUnknown && (EffectSettled{ID: p.Intent.ID, Outcome: *p.Outcome, Failure: p.Failure, At: p.Intent.At}).valid()
+	return p.Intent.Effect.Target() == EffectTargetDispatcher && p.Outcome.Status() == SettlementStatusUnknown && p.Outcome.settles(p.Failure)
 }
 
 func (p PendingCheckpoint) inspect(epoch Epoch, program ProgramRef) PendingEffect {
-	effect := PendingEffect{Request: EffectRequest{id: p.Intent.ID, epoch: epoch, program: program, effect: p.Intent.Effect}, Policy: p.Intent.Policy}
+	effect := PendingEffect{Request: EffectRequest{id: p.Intent.ID, epoch: epoch, program: program, effect: p.Intent.Effect}}
 	if p.Failure != nil {
 		effect.Failure = new(*p.Failure)
 	}

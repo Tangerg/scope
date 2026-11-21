@@ -24,7 +24,7 @@ func TestReleaseTreeJoinsTheExitedWriterWithoutRetainingTheRuntimeLock(t *testin
 				started := log.Entries[0].Record.(Started)
 				terminal := Termination{output: started.Input}
 				log = integrityAppend(log,
-					Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, terminal.output))},
+					Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, terminal.output)), At: recordedNow()},
 					Exited{Process: log.Root, Termination: terminal, At: started.At})
 				state := controlValue(projectLog(log))
 				tree := newTreeRuntime(nil, state, t.Context())

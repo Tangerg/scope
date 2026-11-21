@@ -50,16 +50,18 @@ const (
 	failureCodePlanningActionFailed     = "planning.action.failed"
 )
 
+// newSenseEffect declares sensing, which is side-effect-free and so may repeat.
 func newSenseEffect(input run.Payload) (run.Effect, error) {
 	payload, err := run.EncodePayload(effectEnvelope{Input: input})
 	if err != nil {
 		return run.Effect{}, err
 	}
-	return run.NewDispatcherEffect(payload)
+	return run.NewDispatcherEffect(payload, run.EffectPolicy{Replay: run.ReplayPolicySameIdentity})
 }
 
-// newActionEffect declares a dispatcher Action the Planner selected. Its plan
-// passed EvaluatePlan against the current state, so the Action applies.
+// newActionEffect declares a dispatcher Action the Planner selected, under the
+// policy its binding declared. Its plan passed EvaluatePlan against the
+// current state, so the Action applies.
 func newActionEffect(input run.Payload, binding actionDeclaration, state WorldState) (run.Effect, error) {
 	payload, err := run.EncodePayload(effectEnvelope{
 		Input: input,
@@ -70,7 +72,7 @@ func newActionEffect(input run.Payload, binding actionDeclaration, state WorldSt
 	if err != nil {
 		return run.Effect{}, err
 	}
-	return run.NewDispatcherEffect(payload)
+	return run.NewDispatcherEffect(payload, binding.policy)
 }
 
 func decodeEffect(payload run.Payload) (effectEnvelope, error) {

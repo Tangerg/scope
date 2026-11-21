@@ -41,7 +41,7 @@ func TestCaptureFencesAtTheObservedHeadAndIsRepeatable(t *testing.T) {
 	config := trajectoryConfig(t, complete)
 	prefix := config.Log
 	for index, entry := range prefix.Entries {
-		if _, ok := entry.Record.(run.EffectIntent); ok {
+		if step, ok := entry.Record.(run.Stepped); ok && len(step.Intents()) != 0 {
 			prefix.Entries = prefix.Entries[:index+1]
 			break
 		}

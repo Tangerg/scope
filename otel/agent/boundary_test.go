@@ -43,10 +43,6 @@ func (b *boundaryFailure) Read(context.Context, run.ProcessID, run.LSN) iter.Seq
 	}
 }
 
-func (b *boundaryFailure) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-}
-
 func (b *boundaryFailure) Dispatch(context.Context, run.EffectRequest, run.DeltaEmitter) (run.Settlement, error) {
 	return run.Settlement{}, b.fail()
 }

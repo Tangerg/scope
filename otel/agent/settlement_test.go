@@ -13,10 +13,6 @@ import (
 
 type failedEffectDispatcher struct{ outcome run.Settlement }
 
-func (f failedEffectDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-}
-
 func (f failedEffectDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEmitter) (run.Settlement, error) {
 	return f.outcome, nil
 }

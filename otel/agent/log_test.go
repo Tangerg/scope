@@ -73,7 +73,7 @@ func (t *testExecution) Step(_ context.Context, turn run.Turn) (run.Transition, 
 		if err != nil {
 			return run.Transition{}, err
 		}
-		effect, err := run.NewDispatcherEffect(prompt)
+		effect, err := run.NewDispatcherEffect(prompt, run.EffectPolicy{Replay: run.ReplayPolicyNever})
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -91,10 +91,6 @@ func (t *testExecution) Step(_ context.Context, turn run.Turn) (run.Transition, 
 }
 
 type testDispatcher struct{ err error }
-
-func (t testDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-}
 
 func (t testDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEmitter) (run.Settlement, error) {
 	if t.err != nil {
@@ -247,13 +243,13 @@ func TestObservationCursorResumesWithoutRepeatingRecords(t *testing.T) {
 	}
 	var cut int
 	for index, entry := range log.Entries {
-		if _, ok := entry.Record.(run.EffectIntent); ok {
+		if step, ok := entry.Record.(run.Stepped); ok && len(step.Intents()) != 0 {
 			cut = index + 1
 			break
 		}
 	}
 	if cut == 0 {
-		t.Fatal("no effect intent")
+		t.Fatal("no Step declared an Effect")
 	}
 	after, err := h.observer.Consume(t.Context(), recordedSource{log.Root, log.Entries[:cut]}, 0)
 	if err != nil {

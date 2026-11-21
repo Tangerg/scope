@@ -187,11 +187,9 @@ func TestInputValidatorRejectsTheWholeBatchBeforeAnyWrite(t *testing.T) {
 	if output := awaitOutput(t, handle); writes.Load() != 0 || models != 2 || output.ModelResponse.Text() != "corrected" {
 		t.Fatalf("batch admission ran a valid prefix: writes=%d models=%d", writes.Load(), models)
 	}
-	for _, entry := range completedLog(t, store, handle.ID()).Entries {
-		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			if _, isTool, err := ToolCallFromEffect(intent.Effect); err != nil || isTool {
-				t.Fatalf("rejected batch committed a tool intent: %v", err)
-			}
+	for _, intent := range loggedIntents(completedLog(t, store, handle.ID())) {
+		if _, isTool, err := ToolCallFromEffect(intent.Effect); err != nil || isTool {
+			t.Fatalf("rejected batch committed a tool intent: %v", err)
 		}
 	}
 }
@@ -312,16 +310,18 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 	}
 }
 
-func TestReplayPolicyBelongsToEachTool(t *testing.T) {
+func TestEachToolCallIsDeclaredUnderItsToolsReplayPolicy(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "read", idempotent: true}, scriptTool{name: "write"})
 	definition := mustValue(newDefinition(Config{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))
-	dispatcher := mustValue(newDispatcher(definition, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return nil, errors.New("must not call the model")
-	}))}))
-	for name, want := range map[string]run.ReplayPolicy{"read": run.ReplayPolicySameIdentity, "write": run.ReplayPolicyNever} {
-		effect := mustValue(toolDispatchRequest{Call: requested(name, name)}.effect())
-		if got := dispatcher.Policy(effect).Replay; got != want {
+	for name, want := range map[string]run.ReplayPolicy{"read": run.ReplayPolicySameIdentity, "write": run.ReplayPolicyNever, "unbound": run.ReplayPolicyNever} {
+		effect := mustValue(toolDispatchRequest{Call: requested(name, name)}.effect(definition.tools))
+		if got := effect.Policy().Replay; got != want {
 			t.Errorf("%s replay = %s; want %s", name, got, want)
+		}
+	}
+	for _, envelope := range []effectEnvelope{{ModelCall: &modelCall{ModelCallSequence: 1, Request: testInput()}}, {Preparation: &modelCall{ModelCallSequence: 1, Request: testInput()}}} {
+		if got := mustValue(envelope.effect(unrepeatable)).Policy().Replay; got != run.ReplayPolicyNever {
+			t.Errorf("model operation replay = %s; want never", got)
 		}
 	}
 }
@@ -330,11 +330,8 @@ func TestToolSetOwnsTheCapabilitiesEveryToolCallRequires(t *testing.T) {
 	write := mustValue(run.ParseCapability("test.write"))
 	tools := mustValue(NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: []tool.Tool{scriptTool{name: "write"}}, RequiredCapabilities: mustValue(run.NewCapabilitySet(write))}))
 	definition := mustValue(newDefinition(Config{Name: "test.capability", Description: "Require a grant for every tool call.", Tools: tools}))
-	dispatcher := mustValue(newDispatcher(definition, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return nil, errors.New("must not call the model")
-	}))}))
-	effect := mustValue(toolDispatchRequest{Call: requested("write", "call")}.effect())
-	if got := dispatcher.Policy(effect).RequiredCapabilities.Values(); !slices.Equal(got, []run.Capability{write}) {
+	effect := mustValue(toolDispatchRequest{Call: requested("write", "call")}.effect(definition.tools))
+	if got := effect.Policy().RequiredCapabilities.Values(); !slices.Equal(got, []run.Capability{write}) {
 		t.Fatalf("tool call requires %v", got)
 	}
 }

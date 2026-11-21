@@ -30,7 +30,6 @@ type ScriptedCall struct {
 }
 
 type ScriptedDispatcherConfig struct {
-	ReplayPolicy run.ReplayPolicy
 	// Calls are consumed in actual Dispatch order.
 	Calls []ScriptedCall
 }
@@ -46,8 +45,6 @@ type frozenCall struct {
 // records every request that reaches script consumption and fails calls made
 // beyond or contrary to the configured script.
 type ScriptedDispatcher struct {
-	replayPolicy run.ReplayPolicy
-
 	mu    sync.Mutex
 	calls []frozenCall
 	// requests records every consumed request; the next scripted call is the
@@ -58,9 +55,6 @@ type ScriptedDispatcher struct {
 // NewScriptedDispatcher copies the script so callers cannot change expectations
 // while dispatch is running.
 func NewScriptedDispatcher(config ScriptedDispatcherConfig) (*ScriptedDispatcher, error) {
-	if !config.ReplayPolicy.Valid() {
-		return nil, fmt.Errorf("%w: ReplayPolicy is required", ErrInvalidDispatchScript)
-	}
 	calls := make([]frozenCall, len(config.Calls))
 	for index, source := range config.Calls {
 		call, err := freezeCall(source)
@@ -69,7 +63,7 @@ func NewScriptedDispatcher(config ScriptedDispatcherConfig) (*ScriptedDispatcher
 		}
 		calls[index] = call
 	}
-	return &ScriptedDispatcher{replayPolicy: config.ReplayPolicy, calls: calls}, nil
+	return &ScriptedDispatcher{calls: calls}, nil
 }
 
 func freezeCall(source ScriptedCall) (frozenCall, error) {
@@ -140,13 +134,6 @@ func (f frozenCall) dispatch(
 		return run.Settlement{}, f.err
 	}
 	return f.settlement, nil
-}
-
-func (s *ScriptedDispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	if s == nil || !effect.Valid() {
-		return run.EffectPolicy{Replay: run.ReplayPolicyInvalid}
-	}
-	return run.EffectPolicy{Replay: s.replayPolicy}
 }
 
 // Requests returns consumed Dispatch requests in actual call order, including

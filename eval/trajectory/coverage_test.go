@@ -75,9 +75,9 @@ func TestMalformedOrForeignLogCannotBecomeEvaluationEvidence(t *testing.T) {
 		{"duplicate position", func(log *run.Log) { log.Entries[2].LSN = log.Entries[1].LSN }},
 		{"foreign effect", func(log *run.Log) {
 			for i, entry := range log.Entries {
-				if intent, ok := entry.Record.(run.EffectIntent); ok {
-					intent.ID.Process = run.StartID{Scope: "foreign", Key: "root"}.Root()
-					log.Entries[i].Record = intent
+				if step, ok := entry.Record.(run.Stepped); ok && len(step.Intents()) != 0 {
+					step.Process = run.StartID{Scope: "foreign", Key: "root"}.Root()
+					log.Entries[i].Record = step
 					return
 				}
 			}

@@ -4,7 +4,6 @@ import "time"
 
 type PendingEffect struct {
 	Request EffectRequest
-	Policy  EffectPolicy
 	Outcome Settlement
 	Failure *Failure
 }

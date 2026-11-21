@@ -28,21 +28,39 @@ func (e EffectTarget) String() string { return enum.String(e) }
 // Variants are reached only through pointers nothing writes after
 // construction, so copies of an Effect share them safely.
 type Effect struct {
-	call   Payload
+	call   *dispatcherCall
 	spawn  *ChildSpec
 	send   *childSignal
 	cancel *childCancellation
 }
 
-func NewDispatcherEffect(payload Payload) (Effect, error) {
+// dispatcherCall is an external operation together with the replay policy its
+// creator guarantees. The policy travels with the operation so that the Step
+// declaring it is its only owner: replay compares it, and nothing at dispatch
+// time can supply or change it.
+type dispatcherCall struct {
+	Payload Payload      `json:"payload"`
+	Policy  EffectPolicy `json:"policy"`
+}
+
+func (d dispatcherCall) equal(other dispatcherCall) bool {
+	return d.Payload.Equal(other.Payload) && d.Policy.equal(other.Policy)
+}
+
+// NewDispatcherEffect declares an external operation for the Program's
+// Dispatcher together with the replay policy and capabilities it requires.
+func NewDispatcherEffect(payload Payload, policy EffectPolicy) (Effect, error) {
 	if !payload.Valid() {
 		return Effect{}, fmt.Errorf("%w: a dispatcher Effect requires a payload", ErrInvalidPayload)
 	}
-	return Effect{call: payload}, nil
+	if !policy.Valid() {
+		return Effect{}, fmt.Errorf("%w: a dispatcher Effect requires a valid policy", ErrInvalidEffect)
+	}
+	return Effect{call: &dispatcherCall{Payload: payload, Policy: policy}}, nil
 }
 
 func (e Effect) Target() EffectTarget {
-	if e.call.Valid() {
+	if e.call != nil {
 		return EffectTargetDispatcher
 	}
 	if e.Valid() {
@@ -51,14 +69,25 @@ func (e Effect) Target() EffectTarget {
 	return EffectTargetInvalid
 }
 
-func (e Effect) intrinsicPolicy() (EffectPolicy, bool) {
-	if e.Target() != EffectTargetFramework {
-		return EffectPolicy{}, false
+// Policy returns the policy a dispatcher Effect declared. Framework Effects
+// are the kernel's own and always repeat under their identity.
+func (e Effect) Policy() EffectPolicy {
+	switch e.Target() {
+	case EffectTargetDispatcher:
+		return e.call.Policy
+	case EffectTargetFramework:
+		return EffectPolicy{Replay: ReplayPolicySameIdentity}
+	default:
+		return EffectPolicy{}
 	}
-	return EffectPolicy{Replay: ReplayPolicySameIdentity}, true
 }
 
-func (e Effect) Payload() Payload { return e.call }
+func (e Effect) Payload() Payload {
+	if e.call == nil {
+		return Payload{}
+	}
+	return e.call.Payload
+}
 
 // ChildStart reports the child a framework Effect starts.
 func (e Effect) ChildStart() (ChildSpec, bool) {
@@ -71,12 +100,15 @@ func (e Effect) ChildStart() (ChildSpec, bool) {
 // Valid rejects the zero Effect. Every constructor admits exactly one valid
 // variant and the decoder admits only wellFormed values, so presence is enough.
 func (e Effect) Valid() bool {
-	return e.call.Valid() || e.spawn != nil || e.send != nil || e.cancel != nil
+	return e.call != nil || e.spawn != nil || e.send != nil || e.cancel != nil
 }
 
 func (e Effect) wellFormed() bool {
 	count := 0
-	if e.call.Valid() {
+	if e.call != nil {
+		if !e.call.Payload.Valid() || !e.call.Policy.Valid() {
+			return false
+		}
 		count++
 	}
 	if e.spawn != nil {
@@ -132,8 +164,8 @@ func (e Effect) Equal(other Effect) bool {
 		return false
 	}
 	switch {
-	case e.call.Valid():
-		return e.call.Equal(other.call)
+	case e.call != nil:
+		return other.call != nil && e.call.equal(*other.call)
 	case e.spawn != nil:
 		return other.spawn != nil && e.spawn.Equal(*other.spawn)
 	case e.send != nil:
@@ -144,7 +176,7 @@ func (e Effect) Equal(other Effect) bool {
 }
 
 type effectWire struct {
-	Call   Payload            `json:"call,omitzero"`
+	Call   *dispatcherCall    `json:"call,omitzero"`
 	Spawn  *ChildSpec         `json:"spawn,omitzero"`
 	Send   *childSignal       `json:"send,omitzero"`
 	Cancel *childCancellation `json:"cancel,omitzero"`

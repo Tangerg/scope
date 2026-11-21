@@ -12,26 +12,25 @@ func TestLogUsageRetainsReapedWorkAndCountsOnlyDefiniteMessages(t *testing.T) {
 	key := controlValue(ParseChildKey("child"))
 	child := Started{Process: controlValue(log.Root.Child(key)), Program: parent.Program, Input: parent.Input, At: parent.At}
 	spawn := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
-	external := controlValue(NewDispatcherEffect(parent.Input))
-	spawnIntent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: spawn, Policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, At: parent.At}
-	externalIntent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1, Index: 1}, Effect: external, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: parent.At}
+	external := controlValue(NewDispatcherEffect(parent.Input, replayNever))
+	spawnID, externalID := EffectID{Process: log.Root, Step: 1}, EffectID{Process: log.Root, Step: 1, Index: 1}
 	signal := SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("input")), Payload: parent.Input}, At: parent.At}
 	log = integrityAppend(log, signal,
-		Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Yield(1, []Effect{spawn, external}))}, spawnIntent, externalIntent)
+		Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Yield(1, []Effect{spawn, external})), At: recordedNow()})
 	state := controlValue(projectLog(log))
 	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{state.processes[log.Root].materialize(controlValue(NewExecutionState("fixture", parent.Input)))}}
 	checkpointIndex := len(log.Entries)
 	log = integrityAppend(log, checkpoint, child,
-		EffectSettled{ID: spawnIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At},
-		EffectSettled{ID: externalIntent.ID, Outcome: unknownSettlement(), At: parent.At})
+		EffectSettled{ID: spawnID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At},
+		EffectSettled{ID: externalID, Outcome: unknownSettlement(), At: parent.At})
 	if got := controlValue(log.Usage()); got != (Usage{CommittedSteps: 1, PreparedEffects: 2, AcceptedMessages: 2}) {
 		t.Fatalf("unknown outcome counted as a message: %+v", got)
 	}
-	settled := EffectSettled{ID: externalIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, parent.Input)), At: parent.At}
+	settled := EffectSettled{ID: externalID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, parent.Input)), At: parent.At}
 	log = integrityAppend(log, settled,
-		Stepped{Process: child.Process, Step: 1, Transition: controlValue(Complete(0, child.Input))},
+		Stepped{Process: child.Process, Step: 1, Transition: controlValue(Complete(0, child.Input)), At: recordedNow()},
 		Exited{Process: child.Process, Termination: Termination{output: child.Input}, At: child.At},
-		Stepped{Process: log.Root, Step: 2, Delivered: 3, Transition: controlValue(Complete(3, parent.Input))},
+		Stepped{Process: log.Root, Step: 2, Delivered: 3, Transition: controlValue(Complete(3, parent.Input)), At: recordedNow()},
 		Reaped{Process: child.Process}, Exited{Process: log.Root, Termination: Termination{output: parent.Input}, At: parent.At})
 	inspection := controlValue(log.Inspect())
 	root, found := inspection.Process(log.Root)

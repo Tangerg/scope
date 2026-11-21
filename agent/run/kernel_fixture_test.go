@@ -153,16 +153,10 @@ func (*boundaryExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.boundary", 0)
 }
 
-type boundaryDispatcher struct {
-	policy   EffectPolicy
-	dispatch func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error)
-}
-
-func (b boundaryDispatcher) Policy(Effect) EffectPolicy { return b.policy }
-
-func (b boundaryDispatcher) Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
-	return b.dispatch(ctx, request, emit)
-}
+var (
+	replayNever        = EffectPolicy{Replay: ReplayPolicyNever}
+	replaySameIdentity = EffectPolicy{Replay: ReplayPolicySameIdentity}
+)
 
 // hostStartID gives each test start a fresh identity in a Host-owned scope.
 func hostStartID() StartID { return StartID{Scope: "test", Key: rand.Text()} }

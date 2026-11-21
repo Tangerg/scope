@@ -201,8 +201,9 @@ func (b *behaviorProjection) foldLog(log run.Log, paths map[run.ProcessID]string
 			processes[record.Process] = process
 		case run.Stepped:
 			b.Steps = append(b.Steps, behaviorStep{Process: paths[record.Process], Step: record.Step, Kind: record.Transition.Kind()})
-		case run.EffectIntent:
-			effects[record.ID] = behaviorEffect{Process: paths[record.ID.Process], Step: record.ID.Step, Index: record.ID.Index, Target: record.Effect.Target()}
+			for _, intent := range record.Intents() {
+				effects[intent.ID] = behaviorEffect{Process: paths[intent.ID.Process], Step: intent.ID.Step, Index: intent.ID.Index, Target: intent.Effect.Target()}
+			}
 		case run.EffectSettled:
 			effect := effects[record.ID]
 			effect.Status = record.Outcome.Status()

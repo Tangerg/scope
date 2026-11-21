@@ -30,11 +30,11 @@ type toolDispatcher struct {
 	manifest    toolManifest
 }
 
-func newToolDispatcher() *toolDispatcher {
+func newToolDispatcher(requiredCapabilities run.CapabilitySet) *toolDispatcher {
 	return &toolDispatcher{
 		bindings:    make(map[string]tool.Binding),
 		advertisers: make(map[string]AdvertisingTool),
-		manifest:    toolManifest{entries: make(map[string]toolManifestEntry)},
+		manifest:    toolManifest{entries: make(map[string]toolManifestEntry), requiredCapabilities: requiredCapabilities},
 	}
 }
 

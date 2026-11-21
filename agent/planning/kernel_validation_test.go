@@ -252,7 +252,7 @@ func TestPlanningDispatcherRejectsLocalContractErrorsBeforeExternalWork(t *testi
 		{"inapplicable action", mustJSON(t, effectEnvelope{Input: planningValue(run.EncodePayload("task")), Action: &actionCall{Name: definition.bindings[0].action.Name()}})},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			conformancetest.CheckDispatcherRejection(t, dispatcher, planningValue(run.NewDispatcherEffect(planningValue(run.ParsePayload(test.payload)))))
+			conformancetest.CheckDispatcherRejection(t, dispatcher, planningValue(run.NewDispatcherEffect(planningValue(run.ParsePayload(test.payload)), run.EffectPolicy{Replay: run.ReplayPolicyNever})))
 		})
 	}
 }
@@ -445,14 +445,14 @@ func TestPlanningBindingsRequireOneExecutionOwner(t *testing.T) {
 	}
 	for _, replay := range []run.ReplayPolicy{run.ReplayPolicyNever, run.ReplayPolicySameIdentity} {
 		binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: action, Executor: executor, Replay: replay}))
-		config.actions[0] = binding.declaration
-		dispatcher := planningValue(newDispatcher(planningValue(config.definition()),
-			SensorFunc(func(context.Context, SenseRequest) (WorldState, error) { return validationWorld(t), nil }),
-			[]ActionExecutor{executor}))
 		effect := planningValue(newActionEffect(planningValue(run.EncodePayload("task")), binding.declaration, validationWorld(t)))
-		if dispatcher.Policy(effect).Replay != replay {
-			t.Fatal("dispatcher did not preserve the action's replay declaration")
+		if effect.Policy().Replay != replay {
+			t.Fatal("the action Effect did not carry the action's replay declaration")
 		}
+	}
+	sense := planningValue(newSenseEffect(planningValue(run.EncodePayload("task"))))
+	if sense.Policy().Replay != run.ReplayPolicySameIdentity {
+		t.Fatal("side-effect-free sensing was declared unrepeatable")
 	}
 }
 

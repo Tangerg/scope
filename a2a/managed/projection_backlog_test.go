@@ -104,7 +104,7 @@ func (p *pendingProjectionExecution) Step(_ context.Context, turn run.Turn) (run
 		if err != nil {
 			return run.Transition{}, err
 		}
-		effect, err := run.NewDispatcherEffect(null)
+		effect, err := run.NewDispatcherEffect(null, run.EffectPolicy{Replay: run.ReplayPolicyNever})
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -120,10 +120,6 @@ func (p *pendingProjectionExecution) Step(_ context.Context, turn run.Turn) (run
 type pendingProjectionDispatcher struct {
 	entered chan struct{}
 	release chan struct{}
-}
-
-func (p pendingProjectionDispatcher) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
 
 func (p pendingProjectionDispatcher) Dispatch(ctx context.Context, _ run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {

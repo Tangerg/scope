@@ -58,16 +58,6 @@ type Receipt struct {
 	SignalID run.SignalID `json:"signal_id"`
 }
 
-func (d *Dispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	if d == nil || lo.IsNil(d.port) {
-		return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	}
-	if _, err := decodeMessage(effect); err != nil {
-		return run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	}
-	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
-}
-
 func (d *Dispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
 	if d == nil || lo.IsNil(d.port) {
 		return messageFailureSettlement(ErrInvalidMessage)

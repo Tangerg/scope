@@ -29,7 +29,7 @@ func TestModelEffectConstructionRejectsAmbiguousOrInvalidAuthority(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			for _, envelope := range []effectEnvelope{{ModelCall: &test.call, ToolCall: test.other}, {Preparation: &test.call, ToolCall: test.other}} {
-				if _, err := envelope.effect(); !errors.Is(err, ErrInvalidProtocol) {
+				if _, err := envelope.effect(unrepeatable); !errors.Is(err, ErrInvalidProtocol) {
 					t.Fatalf("invalid dispatch command accepted: %v", err)
 				}
 			}
@@ -48,7 +48,7 @@ func TestToolEffectConstructionRequiresItsExactContinuationContract(t *testing.T
 		{Call: call, Resume: &toolResume{InputResponse: []byte(`true`)}},
 		{Call: call, Resume: &toolResume{InputRequest: request, InputResponse: []byte(`"yes"`)}},
 	} {
-		if _, err := invocation.effect(); !errors.Is(err, ErrInvalidProtocol) {
+		if _, err := invocation.effect(toolManifest{}); !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatalf("invalid continuation admitted: %+v", invocation)
 		}
 	}

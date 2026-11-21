@@ -18,7 +18,7 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	sibling := controlValue(root.Child(controlValue(ParseChildKey("sibling"))))
 	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), ProgramRef: program.ProgramRef(), Input: controlValue(EncodePayload(0))}
 	signal := Signal{ID: controlValue(ParseSignalID("input")), Payload: controlValue(EncodePayload(1))}
-	call := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"b":[1.0,-0.0],"a":"x"}`)))))
+	call := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"b":[1.0,-0.0],"a":"x"}`))), replayNever))
 	spawn := controlValue(NewChildStartEffect(spec))
 	send := controlValue(NewChildSignalEffect(child, signal))
 	cancel := controlValue(NewChildCancelEffect(child, "parent completed"))
@@ -44,13 +44,13 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 		}
 	}
 
-	if !call.Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(` { "a" : "x", "b" : [1.0, -0.0] } `)))))) {
+	if !call.Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(` { "a" : "x", "b" : [1.0, -0.0] } `))), replayNever))) {
 		t.Error("canonically equal payloads compared unequal")
 	}
 	raw := []byte(`{"n":1}`)
-	owned := controlValue(NewDispatcherEffect(controlValue(ParsePayload(raw))))
+	owned := controlValue(NewDispatcherEffect(controlValue(ParsePayload(raw)), replayNever))
 	raw[5] = '2'
-	if !owned.Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"n":1}`)))))) {
+	if !owned.Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"n":1}`))), replayNever))) {
 		t.Error("caller bytes changed a constructed effect")
 	}
 	otherProgram := spec.ProgramRef
@@ -59,8 +59,8 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	otherCapabilities.Capabilities = controlValue(NewCapabilitySet(controlValue(ParseCapability("tests.write"))))
 	wait := controlValue(ParseWaitKey("answer"))
 	for name, changed := range map[string]Effect{
-		"literal 1 and 1.0": controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))))),
-		"null payload":      controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))))),
+		"literal 1 and 1.0": controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))), replayNever)),
+		"null payload":      controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))), replayNever)),
 		"spawn key":         controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("other")), ProgramRef: spec.ProgramRef, Input: spec.Input})),
 		"spawn program":     controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: otherProgram, Input: spec.Input})),
 		"spawn input":       controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: spec.ProgramRef, Input: controlValue(EncodePayload(1))})),
@@ -79,7 +79,7 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 			}
 		}
 	}
-	if !controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))))).Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`)))))) {
+	if !controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))), replayNever)).Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))), replayNever))) {
 		t.Error("identical literal payloads compared unequal")
 	}
 

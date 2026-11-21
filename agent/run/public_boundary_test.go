@@ -376,7 +376,6 @@ func TestInspectionCannotRewriteLogFailureEvidence(t *testing.T) {
 	}
 	*process.PendingEffects[0].Failure = controlValue(NewFailure(FailureKindExternal, "test.overwritten", "rewritten by observer"))
 	process.Waits[0] = Wait{}
-	process.PendingEffects[0].Policy.Replay = ReplayPolicySameIdentity
 	if !bytes.Equal(before, controlValue(jsonv2.Marshal(log))) {
 		t.Fatal("inspection exposed a writable pointer into committed log evidence")
 	}
@@ -390,20 +389,18 @@ func publicBoundaryLog(t *testing.T, completed bool) Log {
 	if completed {
 		termination := Termination{output: started.Input}
 		log = integrityAppend(log,
-			Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input))},
+			Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input)), At: recordedNow()},
 			Exited{Process: log.Root, Termination: termination, At: started.At},
 		)
 	} else {
-		effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`{"operation":"inspect"}`)))))
+		effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`{"operation":"inspect"}`))), replayNever))
 		wait := kernelWait()
 		remaining := wait
 		remaining.Key = controlValue(ParseWaitKey("confirmation"))
-		intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}
 		failure := controlValue(NewFailure(FailureKindExternal, "test.dispatch.failed", "external outcome is unknown"))
 		log = integrityAppend(log,
-			Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}, wait, remaining))},
-			intent,
-			EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload(json.RawMessage(`null`))))), Failure: &failure, At: started.At},
+			Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}, wait, remaining)), At: recordedNow()},
+			EffectSettled{ID: EffectID{Process: log.Root, Step: 1}, Outcome: controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload(json.RawMessage(`null`))))), Failure: &failure, At: started.At},
 			SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("answer")), Wait: wait.Key, Payload: controlValue(EncodePayload(1))}, At: started.At},
 		)
 		state = controlValue(NewExecutionState("fixture", started.Input))
@@ -460,19 +457,19 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 	runtime := kernelRuntime(t, Config{Store: store, Deltas: deltas})
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.delta-boundary"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
-			return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
+			return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`))), replayNever))})
 		}
 		return Complete(uint32(len(turn.Messages)), controlValue(EncodePayload(7)))
 	}}
 	requests := make(chan EffectRequest, 1)
-	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(_ context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
+	dispatcher := DispatcherFunc(func(_ context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
 		requests <- request
 		emit(Payload{})
 		emit(controlValue(EncodePayload(strings.Repeat("x", maxDeltaBytes))))
 		emit(controlValue(EncodePayload(map[string]string{"text": "first"})))
 		emit(controlValue(EncodePayload("dropped by full channel")))
 		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`7`))))
-	}}
+	})
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()

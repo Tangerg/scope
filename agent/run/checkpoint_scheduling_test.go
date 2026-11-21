@@ -25,22 +25,21 @@ func TestCheckpointPriorityDoesNotDependOnAnEmptyMailbox(t *testing.T) {
 			store := NewMemoryStore()
 			runtime := kernelRuntime(t, Config{Store: store, CheckpointInterval: 1})
 			input := controlValue(EncodePayload(0))
-			effect := controlValue(NewDispatcherEffect(input))
+			effect := controlValue(NewDispatcherEffect(input, replayNever))
 			settlement := controlValue(NewSettlement(SettlementStatusSucceeded, input))
 			transition := controlValue(Yield(0, []Effect{effect}))
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{
 				Definition: &boundaryDefinition{descriptor: kernelDescriptor(t, "test.checkpoint_priority"), step: func(context.Context, Turn) (Transition, error) {
 					return transition, nil
 				}},
-				Dispatcher: boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+				Dispatcher: DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 					return settlement, nil
-				}}, Revision: "checkpoint",
+				}), Revision: "checkpoint",
 			}))
 			root := hostStartID().Root()
 			started := Started{Process: root, Program: program.ProgramRef(), Input: input, Limits: DefaultTreeLimits(), At: time.Unix(1, 0).UTC()}
 			initial := Batch{Root: root, Records: []Record{started, Activated{Epoch: 1}}}
-			intent := EffectIntent{ID: EffectID{Process: root, Step: 1}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}
-			committed := Batch{Root: root, Epoch: 1, After: 2, Records: []Record{Stepped{Process: root, Step: 1, Transition: transition}, intent}}
+			committed := Batch{Root: root, Epoch: 1, After: 2, Records: []Record{Stepped{Process: root, Step: 1, Transition: transition, At: started.At}}}
 			for _, batch := range []Batch{initial, committed} {
 				if err := store.Append(t.Context(), batch); err != nil {
 					t.Fatal(err)
@@ -58,9 +57,9 @@ func TestCheckpointPriorityDoesNotDependOnAnEmptyMailbox(t *testing.T) {
 			tree.checkpointAfter = 1
 			_, stopDispatch := context.WithCancel(tree.ctx)
 			defer stopDispatch()
-			tree.jobs[intent.ID] = &dispatchJob{cancel: stopDispatch}
+			tree.jobs[EffectID{Process: root, Step: 1}] = &dispatchJob{cancel: stopDispatch}
 			tree.commands <- treeCommand{ctx: t.Context(), process: root, operation: controlCommand{kind: ControlPause, reason: "queued pause"}, reply: make(chan commandResponse, 1)}
-			tree.results <- dispatchResult{id: intent.ID, outcome: settlement}
+			tree.results <- dispatchResult{id: EffectID{Process: root, Step: 1}, outcome: settlement}
 			events := treeEvents{host: host.Done(), stop: tree.stopRequested}
 			if test.cancelHost {
 				cancel()
@@ -127,11 +126,11 @@ func TestCheckpointDrainsRunningStepsBeforeStartingMore(t *testing.T) {
 						case <-slowEntered:
 						}
 						close(fastEntered)
-						return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(EncodePayload(0))))})
+						return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(EncodePayload(0)), replayNever))})
 					}},
-					Dispatcher: boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+					Dispatcher: DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 						return NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(0)))
-					}}, Revision: "checkpoint",
+					}), Revision: "checkpoint",
 				}))
 				parent := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{
 					Definition: &checkpointParentDefinition{

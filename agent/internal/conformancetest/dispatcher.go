@@ -98,10 +98,6 @@ type rejectionDispatcher struct {
 	outcome chan dispatchOutcome
 }
 
-func (r *rejectionDispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	return r.next.Policy(effect)
-}
-
 func (r *rejectionDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	settlement, err := r.next.Dispatch(ctx, request, emit)
 	r.outcome <- dispatchOutcome{settlement: settlement, err: err}

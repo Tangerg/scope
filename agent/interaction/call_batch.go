@@ -91,7 +91,7 @@ func (c *callInvocation) acceptDelegate(message run.Message) (bool, error) {
 
 // acceptAnswer turns the answer to this call's open question into the Effect
 // that resumes the tool under the call's original reference.
-func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, next run.EffectID) (run.Effect, bool, error) {
+func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, next run.EffectID, tools toolManifest) (run.Effect, bool, error) {
 	if c.Input == nil {
 		return run.Effect{}, false, nil
 	}
@@ -99,7 +99,7 @@ func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, nex
 	if err != nil || signal.Wait != key {
 		return run.Effect{}, false, err
 	}
-	effect, err := toolDispatchRequest{Call: call, Resume: &toolResume{Reference: c.Reference, InputRequest: c.Input.Request, InputResponse: signal.Payload.JSON()}}.effect()
+	effect, err := toolDispatchRequest{Call: call, Resume: &toolResume{Reference: c.Reference, InputRequest: c.Input.Request, InputResponse: signal.Payload.JSON()}}.effect(tools)
 	if err != nil {
 		return run.Effect{}, false, err
 	}

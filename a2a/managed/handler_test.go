@@ -78,7 +78,7 @@ func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, erro
 		if err != nil {
 			return run.Transition{}, err
 		}
-		effect, err := run.NewDispatcherEffect(blocked)
+		effect, err := run.NewDispatcherEffect(blocked, run.EffectPolicy{Replay: run.ReplayPolicyNever})
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -96,10 +96,6 @@ func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, erro
 type dispatch struct {
 	calls            atomic.Int64
 	entered, release chan struct{}
-}
-
-func (d *dispatch) Policy(run.Effect) run.EffectPolicy {
-	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
 
 func (d *dispatch) Dispatch(ctx context.Context, _ run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {

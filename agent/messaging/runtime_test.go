@@ -191,7 +191,7 @@ func TestMessageDeliveryReconcilesLostAcknowledgmentWithSameSignalIdentity(t *te
 		for _, pending := range process.PendingEffects {
 			if pending.Outcome.Status() == run.SettlementStatusUnknown {
 				unknown = pending.Request.ID()
-				if pending.Policy.Replay != run.ReplayPolicySameIdentity {
+				if pending.Request.Effect().Policy().Replay != run.ReplayPolicySameIdentity {
 					t.Fatal("delivery cannot replay by recipient receipt")
 				}
 			}
@@ -253,7 +253,7 @@ func TestMessageEffectFreezesRecipientAndWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, raw := range []string{`null`, `{}`, `{"recipient":"recipient","payload":null,"unknown":true}`} {
-		effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw)))))
+		effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw))), run.EffectPolicy{Replay: run.ReplayPolicyNever}))
 		if _, err := decodeMessage(effect); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}

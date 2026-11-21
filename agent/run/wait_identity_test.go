@@ -16,14 +16,14 @@ func TestWaitIdentitySurvivesWithdrawalAndCheckpointCuts(t *testing.T) {
 				log := integrityInitialLog(t)
 				started := log.Entries[0].Record.(Started)
 				original := kernelWait()
-				log = integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, nil, original))})
+				log = integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, nil, original)), At: recordedNow()})
 				step := uint64(2)
 				if withdrawn {
 					other := original
 					other.Key = controlValue(ParseWaitKey("another-question"))
 					signal := Signal{ID: controlValue(ParseSignalID("withdraw")), Payload: started.Input}
 					log = integrityAppend(log, SignalAdmitted{Process: log.Root, Signal: signal, At: started.At},
-						Stepped{Process: log.Root, Step: step, Delivered: 1, Transition: controlValue(Yield(1, nil, other))})
+						Stepped{Process: log.Root, Step: step, Delivered: 1, Transition: controlValue(Yield(1, nil, other)), At: recordedNow()})
 					step++
 				}
 				if checkpointed {
@@ -56,7 +56,7 @@ func TestWaitIdentitySurvivesWithdrawalAndCheckpointCuts(t *testing.T) {
 							test.change(&candidate)
 						}
 						proposed := integrityAppend(log, Stepped{Process: log.Root, Step: step, Delivered: 1,
-							Transition: controlValue(Yield(1, nil, candidate))})
+							Transition: controlValue(Yield(1, nil, candidate)), At: recordedNow()})
 						if test.change != nil {
 							if err := proposed.Validate(); !errors.Is(err, ErrInvalidLog) {
 								t.Fatalf("changed wait identity survived admission: %v", err)
