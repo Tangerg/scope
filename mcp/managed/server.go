@@ -141,7 +141,7 @@ func (b *binding[I, O]) admit(ctx context.Context, req *sdk.CallToolRequest) (ad
 		return admittedCall[I]{}, errPermission
 	}
 	caps := req.ClientCapabilities()
-	if req.ProtocolVersion() != elicitation.ProtocolVersion || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
+	if !elicitation.Supported(req.ProtocolVersion()) || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
 		return admittedCall[I]{}, errForm
 	}
 	payload, err := run.ParsePayload(tool.Request{Arguments: string(req.Params.Arguments)}.Input())

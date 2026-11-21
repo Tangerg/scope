@@ -95,7 +95,7 @@ type remoteCheckpoint struct {
 }
 
 func (r remoteTool) input(invocation toolcontract.Invocation, result *sdkmcp.CallToolResult) (toolcontract.Result, error) {
-	if initialized := r.session.InitializeResult(); initialized == nil || initialized.ProtocolVersion < elicitation.ProtocolVersion || len(result.InputRequests) != 1 {
+	if initialized := r.session.InitializeResult(); initialized == nil || !elicitation.Supported(initialized.ProtocolVersion) || len(result.InputRequests) != 1 {
 		return toolcontract.Result{}, ErrIncompleteResult
 	}
 	for id, req := range result.InputRequests {

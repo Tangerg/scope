@@ -3,9 +3,15 @@
 // speak the same protocol, so they share one declaration of it.
 package elicitation
 
-// ProtocolVersion is the first MCP revision with per-request form elicitation,
-// including input requests carried by a tool result.
-const ProtocolVersion = "2026-07-28"
+// firstProtocolVersion is the first MCP revision with per-request form
+// elicitation, including input requests carried by a tool result.
+const firstProtocolVersion = "2026-07-28"
+
+// Supported reports whether a negotiated revision carries per-request form
+// elicitation. MCP revisions are ISO dates, so later revisions sort after it.
+func Supported(protocolVersion string) bool {
+	return protocolVersion >= firstProtocolVersion
+}
 
 const FormMode = "form"
 
