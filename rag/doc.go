@@ -27,10 +27,10 @@
 //
 // # Parallel retriever fan-out
 //
-// [ReciprocalRankFusion] combines independent rankings without comparing their
-// raw scores, and [Expand] applies the same fusion to expanded queries:
+// [Fuse] combines independent rankings by reciprocal rank without comparing
+// their raw scores, and [Expand] applies the same fusion to expanded queries:
 //
-//	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, vectorR1, vectorR2)
+//	combined, err := rag.Fuse(rag.FusionConfig{Retrievers: []rag.Retriever{vectorR1, vectorR2}})
 //
 // [TopK] only sorts and caps a comparable result. [Deduplicator] keeps the best
 // candidate for each known document identity; apply it before TopK when a

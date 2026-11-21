@@ -75,7 +75,7 @@ func TestDedupAndFusionKeepDifferentLocationsInOneRevision(t *testing.T) {
 	}
 	// Two independent votes for the middle location outrank a single vote for
 	// the left. Repeating the left in one retriever is not another vote.
-	fusion, buildErr := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, pass(rows), pass(rag.Candidates{{Document: middle}}))
+	fusion, buildErr := rag.Fuse(rag.FusionConfig{Retrievers: []rag.Retriever{pass(rows), pass(rag.Candidates{{Document: middle}})}})
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}

@@ -45,7 +45,7 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}
-	fused, fusionErr := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, first, source(rag.Candidates{candidate(current), candidate(other)}))
+	fused, fusionErr := rag.Fuse(rag.FusionConfig{Retrievers: []rag.Retriever{first, source(rag.Candidates{candidate(current), candidate(other)})}})
 	if fusionErr != nil {
 		t.Fatal(fusionErr)
 	}

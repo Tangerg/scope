@@ -34,8 +34,8 @@ func retrieve(ctx context.Context, query Query, call RetrieverFunc) (Candidates,
 
 // PipelineRetriever owns the public entry boundary. Its pipeline checks each
 // external stage result before passing it onward, so returning that same result
-// does not require another candidate traversal. Construct it with
-// Transform, Expand, or Refine; its zero value is invalid.
+// does not require another candidate traversal. Construct it with Transform,
+// Expand, Fuse or Refine; its zero value is invalid.
 type PipelineRetriever struct {
 	run func(context.Context, Query) (Candidates, error)
 }
@@ -69,7 +69,7 @@ func Transform(next Retriever, transformers ...Transformer) (*PipelineRetriever,
 	owned := slices.Clone(transformers)
 	for index, transformer := range owned {
 		if lo.IsNil(transformer) {
-			return nil, fmt.Errorf("rag.Transform: transformer %d: %w", index, ErrNilTransformer)
+			return nil, fmt.Errorf("rag: transformer %d: %w", index, ErrNilTransformer)
 		}
 	}
 
@@ -121,7 +121,7 @@ func Expand(config ExpansionConfig) (*PipelineRetriever, error) {
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
-		rankings, err := parallelResults(ctx, "rag.Expand", queries, "query", concurrency,
+		rankings, err := parallelResults(ctx, "rag: expand", queries, "query", concurrency,
 			func(ctx context.Context, _ int, q Query) (Candidates, error) {
 				return retrieve(ctx, q, config.Retriever.Retrieve)
 			})
@@ -141,7 +141,7 @@ func Refine(next Retriever, refiners ...Refiner) (*PipelineRetriever, error) {
 	owned := slices.Clone(refiners)
 	for index, refiner := range owned {
 		if lo.IsNil(refiner) {
-			return nil, fmt.Errorf("rag.Refine: refiner %d: %w", index, ErrNilRefiner)
+			return nil, fmt.Errorf("rag: refiner %d: %w", index, ErrNilRefiner)
 		}
 	}
 

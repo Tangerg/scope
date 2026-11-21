@@ -30,20 +30,22 @@ func (r ReciprocalRankFusionConfig) normalize() (ReciprocalRankFusionConfig, err
 	return r, nil
 }
 
-type FusionRetrieverConfig struct {
-	Fusion ReciprocalRankFusionConfig
+// FusionConfig fuses the ordered results of several retrievers for one query.
+type FusionConfig struct {
+	Retrievers []Retriever
+	Fusion     ReciprocalRankFusionConfig
 	// MaxConcurrentRetrievals bounds active child calls independently per
 	// invocation. Zero uses DefaultMaxConcurrentRetrievals; one is sequential.
 	MaxConcurrentRetrievals int
 }
 
-// ReciprocalRankFusion returns a retriever that concurrently executes each
-// input retriever and fuses their ordered results using reciprocal-rank
-// fusion. Raw candidate scores are deliberately ignored because independent
-// retrievers commonly use incomparable score scales. Every retriever must
-// succeed; the first failure cancels the remaining retrievals and is returned
-// without partial results.
-func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever) (*FusionRetriever, error) {
+// Fuse returns a [Retriever] that concurrently executes each configured
+// retriever and fuses their ordered results using reciprocal-rank fusion. Raw
+// candidate scores are deliberately ignored because independent retrievers
+// commonly use incomparable score scales. Every retriever must succeed; the
+// first failure cancels the remaining retrievals and is returned without
+// partial results.
+func Fuse(config FusionConfig) (*PipelineRetriever, error) {
 	fusion, err := config.Fusion.normalize()
 	if err != nil {
 		return nil, err
@@ -52,42 +54,25 @@ func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever)
 	if err != nil {
 		return nil, err
 	}
-	if len(retrievers) == 0 {
-		return nil, fmt.Errorf("rag.ReciprocalRankFusion: at least one retriever is required: %w", ErrNilRetriever)
+	if len(config.Retrievers) == 0 {
+		return nil, fmt.Errorf("rag: fusion requires at least one retriever: %w", ErrNilRetriever)
 	}
-	owned := slices.Clone(retrievers)
-	for index, retriever := range owned {
+	retrievers := slices.Clone(config.Retrievers)
+	for index, retriever := range retrievers {
 		if lo.IsNil(retriever) {
-			return nil, fmt.Errorf("rag.ReciprocalRankFusion: retriever %d: %w", index, ErrNilRetriever)
+			return nil, fmt.Errorf("rag: fusion retriever %d: %w", index, ErrNilRetriever)
 		}
 	}
-
-	return &FusionRetriever{fusion: fusion, maxConcurrentRetrievals: concurrency, retrievers: owned}, nil
-}
-
-// FusionRetriever owns an admitted, detached set of rank-fusion inputs.
-// Construct it with ReciprocalRankFusion; its zero value is invalid.
-type FusionRetriever struct {
-	fusion                  ReciprocalRankFusionConfig
-	maxConcurrentRetrievals int
-	retrievers              []Retriever
-}
-
-func (f *FusionRetriever) Retrieve(ctx context.Context, query Query) (Candidates, error) {
-	if f == nil || len(f.retrievers) == 0 {
-		return nil, ErrNilRetriever
-	}
-	if err := query.Validate(); err != nil {
-		return nil, err
-	}
-	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", f.retrievers, "retriever", f.maxConcurrentRetrievals,
-		func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
-			return retrieve(ctx, query, retriever.Retrieve)
-		})
-	if err != nil {
-		return nil, err
-	}
-	return fuseRankings(ctx, rankings, f.fusion.RankConstant)
+	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
+		rankings, err := parallelResults(ctx, "rag: fuse", retrievers, "retriever", concurrency,
+			func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
+				return retrieve(ctx, query, retriever.Retrieve)
+			})
+		if err != nil {
+			return nil, err
+		}
+		return fuseRankings(ctx, rankings, fusion.RankConstant)
+	}}, nil
 }
 
 func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) (Candidates, error) {

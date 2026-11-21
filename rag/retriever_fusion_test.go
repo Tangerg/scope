@@ -9,17 +9,16 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-func TestReciprocalRankFusionUsesRanksInsteadOfRawScores(t *testing.T) {
+func TestFuseUsesRanksInsteadOfRawScores(t *testing.T) {
 	firstA := identifiedDocument(t, "a", "a from first retriever")
 	secondA := identifiedDocument(t, "a", "a from second retriever")
 	b := identifiedDocument(t, "b", "b")
 	c := identifiedDocument(t, "c", "c")
 
-	fused, err := rag.ReciprocalRankFusion(
-		rag.FusionRetrieverConfig{},
+	fused, err := rag.Fuse(rag.FusionConfig{Retrievers: []rag.Retriever{
 		&fakeRetriever{docs: []rag.Candidate{candidate(firstA, 0.01), candidate(b, 1_000)}},
 		&fakeRetriever{docs: []rag.Candidate{candidate(secondA, -100), candidate(c, 10_000)}},
-	)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,16 +42,15 @@ func TestReciprocalRankFusionUsesRanksInsteadOfRawScores(t *testing.T) {
 	}
 }
 
-func TestReciprocalRankFusionDoesNotRewardDuplicateIdentityWithinOneRanking(t *testing.T) {
+func TestFuseDoesNotRewardDuplicateIdentityWithinOneRanking(t *testing.T) {
 	firstA := identifiedDocument(t, "a", "a first")
 	duplicateA := identifiedDocument(t, "a", "a duplicate")
 	b := identifiedDocument(t, "b", "b")
 
-	fused, err := rag.ReciprocalRankFusion(
-		rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}},
+	fused, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}, Retrievers: []rag.Retriever{
 		&fakeRetriever{docs: []rag.Candidate{candidate(firstA), candidate(duplicateA), candidate(b)}},
 		&fakeRetriever{docs: []rag.Candidate{candidate(b)}},
-	)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +68,13 @@ func TestReciprocalRankFusionDoesNotRewardDuplicateIdentityWithinOneRanking(t *t
 	}
 }
 
-func TestReciprocalRankFusionUsesStableFirstAppearanceForTies(t *testing.T) {
+func TestFuseUsesStableFirstAppearanceForTies(t *testing.T) {
 	a := identifiedDocument(t, "a", "a")
 	b := identifiedDocument(t, "b", "b")
-	fused, err := rag.ReciprocalRankFusion(
-		rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}},
+	fused, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}, Retrievers: []rag.Retriever{
 		&fakeRetriever{docs: []rag.Candidate{candidate(a), candidate(b)}},
 		&fakeRetriever{docs: []rag.Candidate{candidate(b), candidate(a)}},
-	)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,21 +88,20 @@ func TestReciprocalRankFusionUsesStableFirstAppearanceForTies(t *testing.T) {
 	}
 }
 
-func TestReciprocalRankFusionValidatesConfigurationAndChildren(t *testing.T) {
-	if _, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: -1}}, &fakeRetriever{}); !errors.Is(err, rag.ErrInvalidRankConstant) {
+func TestFuseValidatesConfigurationAndChildren(t *testing.T) {
+	if _, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: -1}, Retrievers: []rag.Retriever{&fakeRetriever{}}}); !errors.Is(err, rag.ErrInvalidRankConstant) {
 		t.Fatalf("invalid rank constant error = %v", err)
 	}
-	if _, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}}); !errors.Is(err, rag.ErrNilRetriever) {
+	if _, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}}); !errors.Is(err, rag.ErrNilRetriever) {
 		t.Fatalf("empty retrievers error = %v", err)
 	}
-	if _, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}}, nil); !errors.Is(err, rag.ErrNilRetriever) {
+	if _, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}, Retrievers: []rag.Retriever{nil}}); !errors.Is(err, rag.ErrNilRetriever) {
 		t.Fatalf("nil retriever error = %v", err)
 	}
 
-	fused, err := rag.ReciprocalRankFusion(
-		rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}},
+	fused, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: 10}, Retrievers: []rag.Retriever{
 		&fakeRetriever{docs: []rag.Candidate{{}}},
-	)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,12 +110,11 @@ func TestReciprocalRankFusionValidatesConfigurationAndChildren(t *testing.T) {
 	}
 }
 
-func TestReciprocalRankFusionDoesNotOverflowLargeRankConstant(t *testing.T) {
+func TestFuseDoesNotOverflowLargeRankConstant(t *testing.T) {
 	doc := identifiedDocument(t, "doc", "document")
-	fused, err := rag.ReciprocalRankFusion(
-		rag.FusionRetrieverConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: int(^uint(0) >> 1)}},
+	fused, err := rag.Fuse(rag.FusionConfig{Fusion: rag.ReciprocalRankFusionConfig{RankConstant: int(^uint(0) >> 1)}, Retrievers: []rag.Retriever{
 		&fakeRetriever{docs: []rag.Candidate{candidate(doc)}},
-	)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

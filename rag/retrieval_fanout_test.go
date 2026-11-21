@@ -61,7 +61,7 @@ func TestRetrievalFanoutHonorsConfiguredLimit(t *testing.T) {
 						<-release
 						return nil, nil
 					})
-					config := rag.FusionRetrieverConfig{MaxConcurrentRetrievals: limit}
+					config := rag.FusionConfig{MaxConcurrentRetrievals: limit}
 					var retriever rag.Retriever
 					var err error
 					if expansion {
@@ -80,7 +80,8 @@ func TestRetrievalFanoutHonorsConfiguredLimit(t *testing.T) {
 						for index := range children {
 							children[index] = base
 						}
-						retriever, err = rag.ReciprocalRankFusion(config, children...)
+						config.Retrievers = children
+						retriever, err = rag.Fuse(config)
 					}
 					if err != nil {
 						t.Fatal(err)
@@ -144,7 +145,7 @@ func TestRetrievalFanoutCancelsSiblingsAfterFirstFailure(t *testing.T) {
 						}),
 					})
 				} else {
-					retriever, err = rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, blocked, failing)
+					retriever, err = rag.Fuse(rag.FusionConfig{Retrievers: []rag.Retriever{blocked, failing}})
 				}
 				if err != nil {
 					t.Fatal(err)
@@ -165,9 +166,10 @@ func TestRetrievalFanoutCancelsSiblingsAfterFirstFailure(t *testing.T) {
 }
 
 func TestRetrievalFanoutRejectsNegativeLimit(t *testing.T) {
-	config := rag.FusionRetrieverConfig{MaxConcurrentRetrievals: -1}
+	config := rag.FusionConfig{MaxConcurrentRetrievals: -1}
 	base := &fakeRetriever{}
-	if _, err := rag.ReciprocalRankFusion(config, base); !errors.Is(err, rag.ErrInvalidRetrievalConcurrency) {
+	config.Retrievers = []rag.Retriever{base}
+	if _, err := rag.Fuse(config); !errors.Is(err, rag.ErrInvalidRetrievalConcurrency) {
 		t.Fatalf("fusion configuration error = %v", err)
 	}
 	if _, err := rag.Expand(rag.ExpansionConfig{
