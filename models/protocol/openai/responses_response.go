@@ -52,7 +52,9 @@ func responsesFinishReason(response *responses.Response) (corechat.FinishReason,
 		return "", &invocation.Failure{Kind: invocation.FailureFailed, Cause: errors.New("openai responses: response was canceled")}
 	case responses.ResponseStatusIncomplete:
 		switch response.IncompleteDetails.Reason {
-		case responsesIncompleteMaxTokens:
+		// Both are limits that cut the output short, which Core's Other must not
+		// hide.
+		case responsesIncompleteMaxTokens, responsesIncompleteMaxMessages:
 			return corechat.FinishReasonLength, nil
 		case responsesIncompleteFiltered:
 			return corechat.FinishReasonContentFilter, nil

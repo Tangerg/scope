@@ -22,7 +22,11 @@ import (
 //     capability limit, not a policy withholding, so it is not content-filter.
 //   - OTHER is "all other reasons" and IMAGE_OTHER is "for a reason not
 //     otherwise specified", which is what Core's Other already means.
-//   - The malformed and tool-count reasons are generation faults.
+//   - The malformed, missing-signature and tool-count reasons are generation
+//     faults.
+//   - ESCALATION ("filtered by an escalation rule"), PUP_LIMITED_DISABLED
+//     (stopped for Prohibited Use Policy violations) and MODEL_ARMOR ("blocked
+//     by Model Armor") are policy stops, which Core's Other must not hide.
 func TestNormalizeFinishReasonCoversTheSDKEnum(t *testing.T) {
 	t.Parallel()
 
@@ -44,6 +48,9 @@ func TestNormalizeFinishReasonCoversTheSDKEnum(t *testing.T) {
 		{reason: genai.FinishReasonImageSafety, want: corechat.FinishReasonContentFilter},
 		{reason: genai.FinishReasonImageProhibitedContent, want: corechat.FinishReasonContentFilter},
 		{reason: genai.FinishReasonImageRecitation, want: corechat.FinishReasonContentFilter},
+		{reason: genai.FinishReasonEscalation, want: corechat.FinishReasonContentFilter},
+		{reason: genai.FinishReasonPupLimitedDisabled, want: corechat.FinishReasonContentFilter},
+		{reason: genai.FinishReasonModelArmor, want: corechat.FinishReasonContentFilter},
 
 		{reason: genai.FinishReasonLanguage, want: corechat.FinishReasonOther},
 		{reason: genai.FinishReasonOther, want: corechat.FinishReasonOther},
@@ -52,6 +59,8 @@ func TestNormalizeFinishReasonCoversTheSDKEnum(t *testing.T) {
 		{reason: genai.FinishReasonMalformedFunctionCall, want: corechat.FinishReasonOther},
 		{reason: genai.FinishReasonUnexpectedToolCall, want: corechat.FinishReasonOther},
 		{reason: genai.FinishReasonTooManyToolCalls, want: corechat.FinishReasonOther},
+		{reason: genai.FinishReasonMissingThoughtSignature, want: corechat.FinishReasonOther},
+		{reason: genai.FinishReasonMalformedResponse, want: corechat.FinishReasonOther},
 	}
 
 	for _, test := range tests {

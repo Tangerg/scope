@@ -322,15 +322,19 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 	// Every reason where Gemini policy withheld the content belongs together,
 	// recitation included: it stops generation for using an unauthorized
 	// source, which is a policy outcome a caller acts on and not a fault with
-	// no portable match.
+	// no portable match. Escalation rules, Prohibited Use Policy account limits
+	// and Model Armor are policy stops too.
 	case genai.FinishReasonSafety, genai.FinishReasonBlocklist,
 		genai.FinishReasonProhibitedContent, genai.FinishReasonSPII,
 		genai.FinishReasonRecitation,
 		genai.FinishReasonImageSafety, genai.FinishReasonImageProhibitedContent,
-		genai.FinishReasonImageRecitation:
+		genai.FinishReasonImageRecitation,
+		genai.FinishReasonEscalation, genai.FinishReasonPupLimitedDisabled,
+		genai.FinishReasonModelArmor:
 		return corechat.FinishReasonContentFilter
-	// MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS, and
-	// NO_IMAGE are generation faults, and LANGUAGE is a capability limit
+	// MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS,
+	// MISSING_THOUGHT_SIGNATURE, MALFORMED_RESPONSE and NO_IMAGE are generation
+	// faults, and LANGUAGE is a capability limit
 	// ("stopped because of using an unsupported language", not a policy
 	// withholding), so none has a portable match. OTHER and IMAGE_OTHER are
 	// unspecified by Gemini itself, which is what Core's Other already means.

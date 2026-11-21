@@ -20,15 +20,16 @@ const (
 	// the dialect preserves stream events.
 	ResponsesStreamEventExtensionSuffix = "/responses_stream_event"
 	// Native fields without a Core equivalent retain the binding's namespace.
-	ResponsesRequestExtensionKey  = ProviderID + ResponsesRequestExtensionSuffix
-	ResponsesResponseExtensionKey = ProviderID + ResponsesResponseExtensionSuffix
-	responsesItemTypeMessage      = "message"
-	responsesItemTypeReasoning    = "reasoning"
-	responsesItemTypeFunctionCall = "function_call"
-	responsesContentTypeText      = "output_text"
-	responsesContentTypeRefusal   = "refusal"
-	responsesIncompleteMaxTokens  = "max_output_tokens"
-	responsesIncompleteFiltered   = "content_filter"
+	ResponsesRequestExtensionKey   = ProviderID + ResponsesRequestExtensionSuffix
+	ResponsesResponseExtensionKey  = ProviderID + ResponsesResponseExtensionSuffix
+	responsesItemTypeMessage       = "message"
+	responsesItemTypeReasoning     = "reasoning"
+	responsesItemTypeFunctionCall  = "function_call"
+	responsesContentTypeText       = "output_text"
+	responsesContentTypeRefusal    = "refusal"
+	responsesIncompleteMaxTokens   = "max_output_tokens"
+	responsesIncompleteMaxMessages = "max_messages"
+	responsesIncompleteFiltered    = "content_filter"
 )
 
 // Responses adapts OpenAI's ordered Responses API output to the minimal
