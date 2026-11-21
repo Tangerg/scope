@@ -70,7 +70,7 @@ func newFixtureStore(t *testing.T, config StoreConfig) (*Store, *nativeFixture) 
 	fixture := &nativeFixture{rows: make(map[string]metadata.Map), pageSize: 4}
 	server := httptest.NewServer(http.HandlerFunc(fixture.serve))
 	t.Cleanup(server.Close)
-	config.Endpoint = server.URL
+	config.BaseURL = server.URL
 	config.SchemaName = "scope"
 	config.Namespace = "scope"
 	config.RankingProfile = "scope_rank"

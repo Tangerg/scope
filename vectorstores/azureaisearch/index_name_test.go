@@ -18,7 +18,7 @@ func TestInvalidIndexNamePrecedesSchemaIO(t *testing.T) {
 	t.Cleanup(server.Close)
 	for _, name := range []string{"", ".", "..", "a", "_a", "-a", "Documents", "a/b", "a.b", "a b", "a--b", "a__b", "文档", "a\xff", strings.Repeat("a", 129)} {
 		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
-			config := StoreConfig{Endpoint: server.URL, IndexName: name, HTTPClient: server.Client(), Space: testSpace}
+			config := StoreConfig{BaseURL: server.URL, IndexName: name, HTTPClient: server.Client(), Space: testSpace}
 			if err := config.Validate(); err == nil {
 				t.Error("invalid native index name passed configuration validation")
 			}
@@ -46,7 +46,7 @@ func TestIndexNamePreservesNativeBoundaries(t *testing.T) {
 				fmt.Fprint(writer, nativeSchema("cosine"))
 			}))
 			t.Cleanup(server.Close)
-			store, err := NewStore(t.Context(), StoreConfig{Endpoint: server.URL, IndexName: name, HTTPClient: server.Client(), Space: testSpace})
+			store, err := NewStore(t.Context(), StoreConfig{BaseURL: server.URL, IndexName: name, HTTPClient: server.Client(), Space: testSpace})
 			if err != nil || store == nil || requests.Load() != 1 {
 				t.Fatalf("valid native index binding = %v, requests = %d", err, requests.Load())
 			}

@@ -39,7 +39,7 @@ func fixture(t *testing.T, ids []string, operation func(http.ResponseWriter, *ht
 		operation(w, r, string(body))
 	}))
 	t.Cleanup(server.Close)
-	corpus, err := New(t.Context(), Config{Endpoint: server.URL, CorpusKey: "manuals", APIKey: "secret", AllowedDocumentIDs: ids, HTTPClient: server.Client()})
+	corpus, err := New(t.Context(), Config{BaseURL: server.URL, CorpusKey: "manuals", APIKey: "secret", AllowedDocumentIDs: ids, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}

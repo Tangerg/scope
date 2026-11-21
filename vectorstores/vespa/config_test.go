@@ -22,7 +22,7 @@ func TestEndpointRequiresAHostButAllowsTheConfiguredBasePath(t *testing.T) {
 		{endpoint: "https://user@service.example/base"},
 	} {
 		t.Run(sample.endpoint, func(t *testing.T) {
-			config := StoreConfig{Endpoint: sample.endpoint, SchemaName: "scope", RankingProfile: "rank", Space: fixtureSpace, Dimensions: 2}
+			config := StoreConfig{BaseURL: sample.endpoint, SchemaName: "scope", RankingProfile: "rank", Space: fixtureSpace, Dimensions: 2}
 			if err := config.Validate(); (err == nil) != sample.valid {
 				t.Fatalf("endpoint %q: valid=%t, error=%v", sample.endpoint, sample.valid, err)
 			}

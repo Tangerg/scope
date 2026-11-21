@@ -36,7 +36,7 @@ func TestNativeKnowledgeBaseRetrieve(t *testing.T) {
 		Timeout:       30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	store, err := bedrockkb.New(ctx, bedrockkb.Config{Endpoint: endpoint, HTTPClient: client, KnowledgeBaseID: knowledgeBaseID})
+	store, err := bedrockkb.New(ctx, bedrockkb.Config{BaseURL: endpoint, HTTPClient: client, KnowledgeBaseID: knowledgeBaseID})
 	if err != nil {
 		t.Fatal(err)
 	}

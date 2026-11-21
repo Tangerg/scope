@@ -40,7 +40,7 @@ const (
 // StoreConfig binds an existing index. The host owns schema creation,
 // authentication, transport timeouts, retries and the HTTP client's lifecycle.
 type StoreConfig struct {
-	Endpoint      string
+	BaseURL       string
 	IndexName     string
 	APIVersion    string
 	IDField       string
@@ -48,7 +48,7 @@ type StoreConfig struct {
 	MetadataField string
 	Space         vectorstore.SpaceID
 	// HTTPClient settings are captured; the host retains its transport and jar.
-	// Requests remain within Endpoint's origin even when redirects are followed.
+	// Requests remain within BaseURL's origin even when redirects are followed.
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
@@ -63,8 +63,8 @@ func (s *StoreConfig) applyDefaults() {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if _, err := httpclient.ParseOrigin(s.Endpoint); err != nil {
-		return errors.New("azureaisearch: Endpoint must be an HTTP service origin")
+	if _, err := httpclient.ParseOrigin(s.BaseURL); err != nil {
+		return errors.New("azureaisearch: BaseURL must be an HTTP service origin")
 	}
 	if !validIndexName(s.IndexName) {
 		return errors.New("azureaisearch: invalid native index name")
@@ -119,12 +119,12 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: config.BaseURL})
 	if err != nil {
 		return nil, err
 	}
 	store := &Store{
-		endpoint: strings.TrimRight(config.Endpoint, "/"), indexName: config.IndexName, apiVersion: config.APIVersion,
+		endpoint: strings.TrimRight(config.BaseURL, "/"), indexName: config.IndexName, apiVersion: config.APIVersion,
 		idField: config.IDField, contentField: config.ContentField, embeddingField: config.Space.StorageKey(), metadataField: config.MetadataField,
 		space: config.Space, httpClient: ownedHTTP, maxResponseBytes: config.MaxResponseBytes,
 	}

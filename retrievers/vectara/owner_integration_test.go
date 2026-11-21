@@ -22,7 +22,7 @@ func liveCorpus(t *testing.T) *Corpus {
 	if endpoint == "" || key == "" {
 		t.Fatal("SCOPE_VECTARA_URL and SCOPE_VECTARA_API_KEY are required with -tags=integration")
 	}
-	config := Config{Endpoint: endpoint, APIKey: key, CorpusKey: "scope_native_" + rand.Text(), HTTPClient: &http.Client{Timeout: 30 * time.Second}}
+	config := Config{BaseURL: endpoint, APIKey: key, CorpusKey: "scope_native_" + rand.Text(), HTTPClient: &http.Client{Timeout: 30 * time.Second}}
 	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}

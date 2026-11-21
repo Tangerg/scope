@@ -52,10 +52,10 @@ type Config struct {
 	Scope *MetadataScope
 	// UserID binds Bedrock userContext.userId for access control filtering on
 	// knowledge bases configured with native document ACLs.
-	UserID   string
-	Endpoint string
+	UserID  string
+	BaseURL string
 	// HTTPClient settings are captured; the host retains its transport and jar.
-	// Requests remain within Endpoint's origin even when redirects are followed.
+	// Requests remain within BaseURL's origin even when redirects are followed.
 	HTTPClient                     *http.Client
 	KnowledgeBaseID                string
 	MaxResponseBytes               int64
@@ -65,7 +65,7 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	if err := validateEndpoint(c.Endpoint); err != nil {
+	if err := validateEndpoint(c.BaseURL); err != nil {
 		return err
 	}
 	if c.HTTPClient == nil {
@@ -85,7 +85,7 @@ func (c Config) Validate() error {
 
 func validateEndpoint(raw string) error {
 	if _, err := httpclient.ParseOrigin(raw); err != nil {
-		return fmt.Errorf("bedrockkb: Endpoint must be an HTTP service origin: %w", err)
+		return fmt.Errorf("bedrockkb: BaseURL must be an HTTP service origin: %w", err)
 	}
 	return nil
 }

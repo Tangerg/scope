@@ -6,9 +6,9 @@ func TestEndpointRejectsEmptyQueryAndFragment(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	for _, suffix := range []string{"?", "#", "/?", "/#"} {
 		config := fixture.config()
-		config.Endpoint += suffix
+		config.BaseURL += suffix
 		if err := config.Validate(); err == nil {
-			t.Fatalf("endpoint %q can absorb the index resource path", config.Endpoint)
+			t.Fatalf("endpoint %q can absorb the index resource path", config.BaseURL)
 		}
 	}
 }
@@ -30,7 +30,7 @@ func TestEndpointRequiresAHostAndAnUnqualifiedServiceOrigin(t *testing.T) {
 	} {
 		t.Run(sample.endpoint, func(t *testing.T) {
 			config := fixture.config()
-			config.Endpoint = sample.endpoint
+			config.BaseURL = sample.endpoint
 			if err := config.Validate(); (err == nil) != sample.valid {
 				t.Fatalf("endpoint %q: valid=%t, error=%v", sample.endpoint, sample.valid, err)
 			}

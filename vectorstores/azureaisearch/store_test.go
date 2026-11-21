@@ -461,7 +461,7 @@ func TestConfigRejectsInvalidNativeBindings(t *testing.T) {
 	for _, change := range []func(*StoreConfig){
 		func(config *StoreConfig) { config.Space = "" }, func(config *StoreConfig) { config.HTTPClient = nil }, func(config *StoreConfig) { config.MetadataField = config.IDField },
 		func(config *StoreConfig) { config.IDField = "id' injected" }, func(config *StoreConfig) { config.IDField = "azureSearchReserved" },
-		func(config *StoreConfig) { config.Endpoint = "https://service.invalid/path" }, func(config *StoreConfig) { config.MaxResponseBytes = math.MaxInt64 },
+		func(config *StoreConfig) { config.BaseURL = "https://service.invalid/path" }, func(config *StoreConfig) { config.MaxResponseBytes = math.MaxInt64 },
 	} {
 		config := fixture.config()
 		config.IDField = DefaultIDField

@@ -32,7 +32,7 @@ func TestHostOwnsSigV4Authentication(t *testing.T) {
 		return aws.Credentials{AccessKeyID: "test-key", SecretAccessKey: "test-secret", SessionToken: "test-session"}, nil
 	})
 	client := &http.Client{Transport: exampleSigV4Transport{credentials: credentials, region: "us-east-1", signer: v4.NewSigner(), base: server.Client().Transport}}
-	store, err := bedrockkb.New(t.Context(), bedrockkb.Config{Endpoint: server.URL, HTTPClient: client, KnowledgeBaseID: "KB12345678"})
+	store, err := bedrockkb.New(t.Context(), bedrockkb.Config{BaseURL: server.URL, HTTPClient: client, KnowledgeBaseID: "KB12345678"})
 	if err != nil {
 		t.Fatal(err)
 	}

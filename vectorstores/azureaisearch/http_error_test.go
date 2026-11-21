@@ -20,7 +20,7 @@ func TestHTTPFailureRetainsSafeEvidence(t *testing.T) {
 				_, _ = writer.Write([]byte(body))
 			}))
 			t.Cleanup(server.Close)
-			store, err := NewStore(t.Context(), StoreConfig{Endpoint: server.URL, HTTPClient: server.Client(), IndexName: "documents", Space: "test"})
+			store, err := NewStore(t.Context(), StoreConfig{BaseURL: server.URL, HTTPClient: server.Client(), IndexName: "documents", Space: "test"})
 			if store != nil {
 				t.Fatal("failed construction returned a store")
 			}

@@ -29,7 +29,7 @@ func TestRetrieveHTTPFailurePreservesSafeEvidence(t *testing.T) {
 				_, _ = writer.Write([]byte(body))
 			}))
 			t.Cleanup(server.Close)
-			retriever, err := vectara.New(t.Context(), vectara.Config{Endpoint: server.URL, HTTPClient: server.Client(), CorpusKey: "manuals", APIKey: "test-key"})
+			retriever, err := vectara.New(t.Context(), vectara.Config{BaseURL: server.URL, HTTPClient: server.Client(), CorpusKey: "manuals", APIKey: "test-key"})
 			if err != nil {
 				t.Fatal(err)
 			}

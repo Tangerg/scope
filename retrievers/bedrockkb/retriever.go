@@ -55,7 +55,7 @@ func New(ctx context.Context, config Config) (*Retriever, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: config.BaseURL})
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func New(ctx context.Context, config Config) (*Retriever, error) {
 		return nil, err
 	}
 	store := &Retriever{
-		endpoint: strings.TrimRight(config.Endpoint, "/"), httpClient: ownedHTTP, knowledgeBaseID: config.KnowledgeBaseID, userID: config.UserID,
+		endpoint: strings.TrimRight(config.BaseURL, "/"), httpClient: ownedHTTP, knowledgeBaseID: config.KnowledgeBaseID, userID: config.UserID,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes), configuration: configuration, pageLimit: cmp.Or(config.PageLimit, DefaultPageLimit),
 	}
 	return store, nil

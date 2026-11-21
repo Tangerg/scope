@@ -23,7 +23,7 @@ const (
 
 // StoreConfig selects an externally deployed application and host-owned transport.
 type StoreConfig struct {
-	Endpoint        string
+	BaseURL         string
 	SchemaName      string
 	Namespace       string
 	ContentField    string
@@ -34,15 +34,15 @@ type StoreConfig struct {
 	Space          vectorstore.SpaceID
 	Dimensions     int
 	// HTTPClient remains host-owned. Scope snapshots client settings and
-	// restricts requests to Endpoint's origin while sharing its transport and jar.
+	// restricts requests to BaseURL's origin while sharing its transport and jar.
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if _, err := httpclient.ParseBaseURL(s.Endpoint); err != nil {
-		return errors.New("vespa: Endpoint must be an absolute HTTP URL without credentials, query, or fragment")
+	if _, err := httpclient.ParseBaseURL(s.BaseURL); err != nil {
+		return errors.New("vespa: BaseURL must be an absolute HTTP URL without credentials, query, or fragment")
 	}
 	if s.RankingProfile == "" {
 		return errors.New("vespa: RankingProfile is required")

@@ -21,7 +21,7 @@ func TestHTTPFailureRetainsSafeEvidence(t *testing.T) {
 				_, _ = writer.Write([]byte(body))
 			}))
 			t.Cleanup(server.Close)
-			store, err := NewStore(t.Context(), StoreConfig{Endpoint: server.URL, HTTPClient: server.Client(), SchemaName: "documents", RankingProfile: "semantic", Space: "test", Dimensions: 2})
+			store, err := NewStore(t.Context(), StoreConfig{BaseURL: server.URL, HTTPClient: server.Client(), SchemaName: "documents", RankingProfile: "semantic", Space: "test", Dimensions: 2})
 			if err != nil {
 				t.Fatal(err)
 			}

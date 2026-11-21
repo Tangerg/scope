@@ -52,7 +52,7 @@ func TestRESTAuthorityCannotFollowRedirects(t *testing.T) {
 					}
 				}))
 				defer origin.Close()
-				c, err := NewClient(t.Context(), ClientConfig{Endpoint: origin.URL, GRPCAddress: "127.0.0.1:1", APIKey: key})
+				c, err := NewClient(t.Context(), ClientConfig{BaseURL: origin.URL, GRPCAddress: "127.0.0.1:1", APIKey: key})
 				if c != nil {
 					defer c.Close()
 				}
@@ -95,7 +95,7 @@ func TestClientRejectsInvalidOriginAndResourceQualifiersBeforeIO(t *testing.T) {
 		server.URL + "/base", server.URL + "?scope=a", server.URL + "?", server.URL + "#fragment",
 	} {
 		t.Run(endpoint, func(t *testing.T) {
-			client, err := NewClient(t.Context(), ClientConfig{Endpoint: endpoint, GRPCAddress: "127.0.0.1:1"})
+			client, err := NewClient(t.Context(), ClientConfig{BaseURL: endpoint, GRPCAddress: "127.0.0.1:1"})
 			if client != nil {
 				_ = client.Close()
 			}

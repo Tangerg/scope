@@ -32,7 +32,7 @@ func TestRESTFailuresPreserveTransportEvidence(t *testing.T) {
 					}
 				}))
 				t.Cleanup(server.Close)
-				client, err := NewClient(t.Context(), ClientConfig{Endpoint: server.URL, GRPCAddress: "127.0.0.1:1"})
+				client, err := NewClient(t.Context(), ClientConfig{BaseURL: server.URL, GRPCAddress: "127.0.0.1:1"})
 				if client != nil {
 					t.Cleanup(func() {
 						if closeErr := client.Close(); closeErr != nil {
@@ -73,7 +73,7 @@ func TestRESTDeletionAcceptsRemovedAndMissingObjects(t *testing.T) {
 				w.WriteHeader(status)
 			}))
 			t.Cleanup(server.Close)
-			client, err := NewClient(t.Context(), ClientConfig{Endpoint: server.URL, GRPCAddress: "127.0.0.1:1"})
+			client, err := NewClient(t.Context(), ClientConfig{BaseURL: server.URL, GRPCAddress: "127.0.0.1:1"})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -82,7 +82,7 @@ func nativeSchema(metric string) string {
 }
 
 func (p *protocolFixture) config() StoreConfig {
-	return StoreConfig{Endpoint: p.server.URL, IndexName: "documents", HTTPClient: p.server.Client(), Space: testSpace}
+	return StoreConfig{BaseURL: p.server.URL, IndexName: "documents", HTTPClient: p.server.Client(), Space: testSpace}
 }
 
 func (p *protocolFixture) store() *Store {

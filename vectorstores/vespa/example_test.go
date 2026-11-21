@@ -13,7 +13,7 @@ import (
 func ExampleNewStore() {
 	ctx := context.Background()
 	const space vectorstore.SpaceID = "manuals/v1"
-	store, err := vespa.NewStore(ctx, vespa.StoreConfig{Endpoint: os.Getenv("SCOPE_VESPA_ENDPOINT"), SchemaName: "scope", RankingProfile: "scope_rank", Space: space, Dimensions: 2})
+	store, err := vespa.NewStore(ctx, vespa.StoreConfig{BaseURL: os.Getenv("SCOPE_VESPA_ENDPOINT"), SchemaName: "scope", RankingProfile: "scope_rank", Space: space, Dimensions: 2})
 	if err != nil {
 		panic(err)
 	}

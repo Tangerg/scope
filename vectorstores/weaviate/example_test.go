@@ -12,7 +12,7 @@ import (
 func ExampleNewStore() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	client, err := weaviate.NewClient(ctx, weaviate.ClientConfig{Endpoint: "http://localhost:8080", GRPCAddress: "localhost:50051"})
+	client, err := weaviate.NewClient(ctx, weaviate.ClientConfig{BaseURL: "http://localhost:8080", GRPCAddress: "localhost:50051"})
 	if err != nil {
 		panic(err)
 	}

@@ -74,7 +74,7 @@ func ExampleNew() {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	store, err := bedrockkb.New(ctx, bedrockkb.Config{
-		Endpoint: "https://bedrock-agent-runtime.us-east-1.amazonaws.com", HTTPClient: client, KnowledgeBaseID: "KB12345678",
+		BaseURL: "https://bedrock-agent-runtime.us-east-1.amazonaws.com", HTTPClient: client, KnowledgeBaseID: "KB12345678",
 	})
 	if err != nil {
 		panic(err)

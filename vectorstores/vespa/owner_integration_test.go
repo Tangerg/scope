@@ -28,7 +28,7 @@ func liveStore(t *testing.T) *Store {
 	if endpoint == "" {
 		t.Fatal("SCOPE_VESPA_ENDPOINT is required with -tags=integration")
 	}
-	config := StoreConfig{Endpoint: endpoint, SchemaName: "scope", Namespace: "scope_native_" + strings.ToLower(rand.Text()), RankingProfile: "scope_rank", Space: fixtureSpace, Dimensions: 2, HTTPClient: &http.Client{Timeout: 30 * time.Second}}
+	config := StoreConfig{BaseURL: endpoint, SchemaName: "scope", Namespace: "scope_native_" + strings.ToLower(rand.Text()), RankingProfile: "scope_rank", Space: fixtureSpace, Dimensions: 2, HTTPClient: &http.Client{Timeout: 30 * time.Second}}
 	store, err := NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)

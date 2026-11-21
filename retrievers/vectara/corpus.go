@@ -40,11 +40,11 @@ func New(ctx context.Context, config Config) (*Corpus, error) {
 	if err != nil {
 		return nil, err
 	}
-	client, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.Endpoint, DefaultEndpoint)})
+	client, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.BaseURL, BaseURL)})
 	if err != nil {
 		return nil, err
 	}
-	store := &Corpus{endpoint: strings.TrimRight(cmp.Or(config.Endpoint, DefaultEndpoint), "/"), apiKey: config.APIKey, corpusKey: config.CorpusKey, scope: scope, limit: cmp.Or(config.Limit, DefaultLimit), httpClient: client, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
+	store := &Corpus{endpoint: strings.TrimRight(cmp.Or(config.BaseURL, BaseURL), "/"), apiKey: config.APIKey, corpusKey: config.CorpusKey, scope: scope, limit: cmp.Or(config.Limit, DefaultLimit), httpClient: client, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
 	if err := store.readCorpus(ctx); err != nil {
 		return nil, err
 	}

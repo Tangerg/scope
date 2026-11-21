@@ -43,7 +43,7 @@ func liveWeaviateClient(t *testing.T) (*Client, *sdk.Client) {
 	if grpcPort == "" {
 		grpcPort = "50051"
 	}
-	client, err := NewClient(t.Context(), ClientConfig{Endpoint: address.String(), GRPCAddress: net.JoinHostPort(address.Hostname(), grpcPort)})
+	client, err := NewClient(t.Context(), ClientConfig{BaseURL: address.String(), GRPCAddress: net.JoinHostPort(address.Hostname(), grpcPort)})
 	if err != nil {
 		t.Fatal(err)
 	}

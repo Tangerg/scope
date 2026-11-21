@@ -16,7 +16,7 @@ const (
 	Provider                = "vectara"
 	DefaultLimit            = 5
 	maximumResults          = 100
-	DefaultEndpoint         = "https://api.vectara.io"
+	BaseURL                 = "https://api.vectara.io"
 	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
 	apiVersion              = "v2"
 	nativeFilterMaxRunes    = 8000
@@ -27,7 +27,7 @@ const (
 )
 
 type Config struct {
-	Endpoint  string
+	BaseURL   string
 	APIKey    string
 	CorpusKey string
 	// AllowedDocumentIDs fixes the host-authorized scope. Nil allows the whole
@@ -36,7 +36,7 @@ type Config struct {
 	// Limit bounds passages per query; zero uses DefaultLimit.
 	Limit int
 	// HTTPClient remains host-owned. Scope snapshots client settings and
-	// restricts requests to Endpoint's origin while sharing its transport and jar.
+	// restricts requests to BaseURL's origin while sharing its transport and jar.
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
@@ -64,8 +64,8 @@ func validCorpusKey(key string) bool {
 }
 
 func (c Config) validateConnection() error {
-	if _, err := httpclient.ParseBaseURL(cmp.Or(c.Endpoint, DefaultEndpoint)); err != nil {
-		return errors.New("vectara: Endpoint must be an HTTP origin or base path without user info, query or fragment")
+	if _, err := httpclient.ParseBaseURL(cmp.Or(c.BaseURL, BaseURL)); err != nil {
+		return errors.New("vectara: BaseURL must be an HTTP origin or base path without user info, query or fragment")
 	}
 	if strings.TrimSpace(c.APIKey) == "" {
 		return errors.New("vectara: APIKey is required")

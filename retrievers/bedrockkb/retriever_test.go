@@ -64,7 +64,7 @@ func (p *protocolFixture) serveHTTP(writer http.ResponseWriter, request *http.Re
 }
 
 func (p *protocolFixture) config() Config {
-	return Config{Endpoint: p.server.URL, HTTPClient: p.server.Client(), KnowledgeBaseID: "KB12345678"}
+	return Config{BaseURL: p.server.URL, HTTPClient: p.server.Client(), KnowledgeBaseID: "KB12345678"}
 }
 
 func (p *protocolFixture) store(limit ...int) *Retriever {
@@ -334,7 +334,7 @@ func TestConfigAndNativeReadBudget(t *testing.T) {
 		t.Fatalf("read budget = %v, %v", response, err)
 	}
 	for _, change := range []func(*Config){
-		func(config *Config) { config.HTTPClient = nil }, func(config *Config) { config.Endpoint = "https://service/path" },
+		func(config *Config) { config.HTTPClient = nil }, func(config *Config) { config.BaseURL = "https://service/path" },
 		func(config *Config) { config.MaxResponseBytes = math.MaxInt64 }, func(config *Config) { config.KnowledgeBaseID = " " },
 		func(config *Config) {
 			config.RerankingModelConfiguration = &types.VectorSearchBedrockRerankingModelConfiguration{}

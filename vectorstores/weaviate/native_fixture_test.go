@@ -258,7 +258,7 @@ func newNativeStore(t *testing.T, n *nativeFixture) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := NewClient(t.Context(), ClientConfig{Endpoint: rest.URL, APIKey: n.apiKey, GRPCAddress: net.JoinHostPort(origin.Hostname(), port)})
+	c, err := NewClient(t.Context(), ClientConfig{BaseURL: rest.URL, APIKey: n.apiKey, GRPCAddress: net.JoinHostPort(origin.Hostname(), port)})
 	if err != nil {
 		t.Fatal(err)
 	}

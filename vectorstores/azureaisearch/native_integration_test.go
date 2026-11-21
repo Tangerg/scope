@@ -71,7 +71,7 @@ func newNativeFixture(t *testing.T, metric string) *nativeFixture {
 			t.Errorf("remove owned native index %s: %v", index, err)
 		}
 	})
-	store, err := NewStore(t.Context(), StoreConfig{Endpoint: endpoint, IndexName: index, HTTPClient: client, Space: testSpace})
+	store, err := NewStore(t.Context(), StoreConfig{BaseURL: endpoint, IndexName: index, HTTPClient: client, Space: testSpace})
 	if err != nil {
 		t.Fatal(err)
 	}

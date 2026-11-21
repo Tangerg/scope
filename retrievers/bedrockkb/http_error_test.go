@@ -28,7 +28,7 @@ func TestRetrieveHTTPFailurePreservesSafeEvidence(t *testing.T) {
 				_, _ = writer.Write([]byte(body))
 			}))
 			t.Cleanup(server.Close)
-			retriever, err := bedrockkb.New(t.Context(), bedrockkb.Config{Endpoint: server.URL, HTTPClient: server.Client(), KnowledgeBaseID: "KB12345678"})
+			retriever, err := bedrockkb.New(t.Context(), bedrockkb.Config{BaseURL: server.URL, HTTPClient: server.Client(), KnowledgeBaseID: "KB12345678"})
 			if err != nil {
 				t.Fatal(err)
 			}

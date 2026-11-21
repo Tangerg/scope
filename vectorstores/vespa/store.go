@@ -47,11 +47,11 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: config.BaseURL})
 	if err != nil {
 		return nil, err
 	}
-	return &Store{endpoint: strings.TrimRight(config.Endpoint, "/"), schemaName: config.SchemaName, namespace: config.DocumentNamespace(),
+	return &Store{endpoint: strings.TrimRight(config.BaseURL, "/"), schemaName: config.SchemaName, namespace: config.DocumentNamespace(),
 		fields: schemaFields{content: config.ContentField, embedding: config.EmbeddingField}, queryTensorName: config.QueryTensorName,
 		rankingProfile: config.RankingProfile, space: config.Space, dimensions: config.Dimensions,
 		httpClient: ownedHTTP, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}, nil

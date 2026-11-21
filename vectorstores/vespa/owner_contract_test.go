@@ -277,7 +277,7 @@ func TestNativeTextAndPhysicalFieldContracts(t *testing.T) {
 		}
 	}
 	for _, field := range []string{"scope_metadata", "scope_documentid", "documentid", "embedding"} {
-		config := StoreConfig{Endpoint: "http://localhost:1", SchemaName: "scope", RankingProfile: "rank", ContentField: field, Space: fixtureSpace, Dimensions: 2}
+		config := StoreConfig{BaseURL: "http://localhost:1", SchemaName: "scope", RankingProfile: "rank", ContentField: field, Space: fixtureSpace, Dimensions: 2}
 		if _, err := NewStore(t.Context(), config); err == nil {
 			t.Fatalf("conflicting physical field %q accepted", field)
 		}
@@ -321,12 +321,12 @@ func TestVisitRejectsMalformedCountsAndIdentities(t *testing.T) {
 
 func TestConfigRejectsInvalidEndpointAndResponseBound(t *testing.T) {
 	for _, endpoint := range []string{"", "relative", "file:///tmp/local", "http://host?query=1", "http://host?", "http://host/base?", "http://host#fragment", "http://host#", "http://host/base#", "http://user:password@host"} {
-		config := StoreConfig{Endpoint: endpoint, SchemaName: "scope", RankingProfile: "rank", Space: fixtureSpace, Dimensions: 2}
+		config := StoreConfig{BaseURL: endpoint, SchemaName: "scope", RankingProfile: "rank", Space: fixtureSpace, Dimensions: 2}
 		if err := config.Validate(); err == nil {
 			t.Fatalf("invalid endpoint %q accepted", endpoint)
 		}
 	}
-	config := StoreConfig{Endpoint: "http://localhost:1", SchemaName: "scope", RankingProfile: "rank", Space: fixtureSpace, Dimensions: 2}
+	config := StoreConfig{BaseURL: "http://localhost:1", SchemaName: "scope", RankingProfile: "rank", Space: fixtureSpace, Dimensions: 2}
 	for _, limit := range []int64{-1, math.MaxInt64} {
 		config.MaxResponseBytes = limit
 		if err := config.Validate(); err == nil {

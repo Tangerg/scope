@@ -45,16 +45,16 @@ type Client struct {
 }
 
 type ClientConfig struct {
-	Endpoint    string
+	BaseURL     string
 	GRPCAddress string
 	APIKey      string
 }
 
 func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
-	if _, err := httpclient.ParseOrigin(c.Endpoint); err != nil {
+	if _, err := httpclient.ParseOrigin(c.BaseURL); err != nil {
 		return nil, fmt.Errorf("weaviate: endpoint must be an HTTP(S) origin: %w", err)
 	}
-	u, err := httpclient.ParseBaseURL(c.Endpoint)
+	u, err := httpclient.ParseBaseURL(c.BaseURL)
 	if err != nil {
 		return nil, err
 	}

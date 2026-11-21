@@ -32,7 +32,7 @@ func ExampleNewStore() {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	store, err := azureaisearch.NewStore(ctx, azureaisearch.StoreConfig{
-		Endpoint: "https://example.search.windows.net", IndexName: "documents", HTTPClient: client,
+		BaseURL: "https://example.search.windows.net", IndexName: "documents", HTTPClient: client,
 		Space: "manual-v1",
 	})
 	if err != nil {
