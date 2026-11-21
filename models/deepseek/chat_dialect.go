@@ -27,14 +27,12 @@ const (
 
 const (
 	maximumStopSequences     = 16
+	maximumStopSequenceBytes = 512
 	maximumTools             = 128
 	maximumTopLogProbs       = 20
 	maximumUserIDLength      = 512
 	minimumFlashThinkingTopP = 0.95
 	reasoningEffortNone      = corechat.ReasoningEffort("none")
-	reasoningEffortMinimal   = corechat.ReasoningEffort("minimal")
-	reasoningEffortMedium    = corechat.ReasoningEffort("medium")
-	reasoningEffortXHigh     = corechat.ReasoningEffort("xhigh")
 	reasoningEffortLow       = corechat.ReasoningEffort("low")
 	reasoningEffortHigh      = corechat.ReasoningEffort("high")
 	reasoningEffortMax       = corechat.ReasoningEffort("max")
@@ -125,7 +123,9 @@ func (r RequestOptions) ValidateFor(request *corechat.Request, stream bool) erro
 	generation := request.Options
 	thinkingEnabled := generation.ReasoningEffort != reasoningEffortNone
 	switch generation.ReasoningEffort {
-	case "", reasoningEffortNone, reasoningEffortMinimal, reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh, reasoningEffortMax:
+	// DeepSeek maps minimal to low and medium or xhigh to high, so those words
+	// would silently become another level; only its own levels are admitted.
+	case "", reasoningEffortNone, reasoningEffortLow, reasoningEffortHigh, reasoningEffortMax:
 	default:
 		return fmt.Errorf("options.reasoning_effort has unsupported value %q", generation.ReasoningEffort)
 	}
@@ -145,6 +145,11 @@ func (r RequestOptions) ValidateFor(request *corechat.Request, stream bool) erro
 	}
 	if len(generation.Stop) > maximumStopSequences {
 		return fmt.Errorf("options.stop must contain at most %d sequences for DeepSeek", maximumStopSequences)
+	}
+	for index, sequence := range generation.Stop {
+		if len(sequence) > maximumStopSequenceBytes {
+			return fmt.Errorf("options.stop[%d] must contain at most %d bytes for DeepSeek", index, maximumStopSequenceBytes)
+		}
 	}
 	if len(request.Tools) > maximumTools {
 		return fmt.Errorf("tools must contain at most %d functions for DeepSeek", maximumTools)

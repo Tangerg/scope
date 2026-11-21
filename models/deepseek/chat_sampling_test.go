@@ -84,3 +84,14 @@ func TestRequestOptionsRejectForcedToolChoiceWhileThinking(t *testing.T) {
 		t.Fatalf("ValidateFor without thinking = %v", err)
 	}
 }
+
+func TestRequestOptionsBoundEachStopSequence(t *testing.T) {
+	request := &chat.Request{Options: chat.Options{Stop: []string{strings.Repeat("x", 512)}}}
+	if err := (deepseek.RequestOptions{}).ValidateFor(request, false); err != nil {
+		t.Fatalf("512-byte stop sequence = %v", err)
+	}
+	request.Options.Stop = []string{strings.Repeat("x", 513)}
+	if err := (deepseek.RequestOptions{}).ValidateFor(request, false); err == nil || !strings.Contains(err.Error(), "options.stop[0]") {
+		t.Fatalf("513-byte stop sequence = %v, want a refusal", err)
+	}
+}
