@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -129,11 +130,7 @@ func NewCompositeEvaluator[T any](config CompositeEvaluatorConfig[T]) (*Composit
 }
 
 func (c *CompositeEvaluator[T]) Evaluate(ctx context.Context, subject T) (Report, error) {
-	evaluators := make([]Evaluator[T], len(c.components))
-	for index, component := range c.components {
-		evaluators[index] = component.Evaluator
-	}
-	reports, err := evaluateAll(ctx, evaluators, c.maxConcurrency, subject)
+	reports, err := c.evaluateComponents(ctx, subject)
 	if err != nil {
 		return Report{}, err
 	}
@@ -146,6 +143,40 @@ func (c *CompositeEvaluator[T]) Evaluate(ctx context.Context, subject T) (Report
 		}
 	}
 	return c.combine(reports)
+}
+
+// evaluateComponents runs every component under the composite's concurrency
+// limit; the first failure cancels the components still running.
+func (c *CompositeEvaluator[T]) evaluateComponents(ctx context.Context, subject T) ([]Report, error) {
+	reports := make([]Report, len(c.components))
+	group, groupContext := errgroup.WithContext(ctx)
+	group.SetLimit(c.maxConcurrency)
+	for index, component := range c.components {
+		if groupContext.Err() != nil {
+			break
+		}
+		group.Go(func() error {
+			if err := groupContext.Err(); err != nil {
+				return err
+			}
+			report, err := component.Evaluator.Evaluate(groupContext, subject)
+			if err == nil {
+				err = report.Validate()
+			}
+			if err != nil {
+				return fmt.Errorf("eval: component %d: %w", index, err)
+			}
+			reports[index] = report
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return reports, nil
 }
 
 func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
