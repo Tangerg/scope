@@ -30,7 +30,7 @@ func TestInvocationRetainsOnlyOutstandingObligation(t *testing.T) {
 		t.Fatal(matched, err)
 	}
 	if invocation.Request != nil || invocation.Process == nil || *invocation.Process != process || invocation.Done() {
-		t.Fatal("spawn receipt retained duplicate lifecycle")
+		t.Fatal("child start receipt retained duplicate lifecycle")
 	}
 	var termination run.Termination
 	if err := jsonv2.Unmarshal([]byte(`{"output":"done"}`), &termination); err != nil {
@@ -104,7 +104,7 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 func TestInvalidMessageCarriesOneContractClassification(t *testing.T) {
 	id := run.EffectID{Process: value(run.ParseProcessID("root")), Step: 1}
 	invocation := Invocation{Request: &id}
-	_, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.ParsePayload([]byte(`{"not":"a spawn result"}`)))))})
+	_, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.ParsePayload([]byte(`{"not":"a child start result"}`)))))})
 	failure, classified := run.StepFailure(fmt.Errorf("strategy context: %w", err))
 	if !classified || failure.Kind() != run.FailureKindContract || failure.Code() != "strategy.child.message_invalid" {
 		t.Fatalf("StepFailure = %+v, %t", failure, classified)

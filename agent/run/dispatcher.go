@@ -2,7 +2,10 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"slices"
+
+	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -99,11 +102,16 @@ func (d DispatcherFunc) Dispatch(ctx context.Context, request EffectRequest, emi
 type DispatchMiddleware func(next Dispatcher) Dispatcher
 
 // decorate composes middlewares around dispatcher, the first outermost; nil
-// entries are skipped, as in every Scope composition.
+// entries are skipped, as in every Scope composition. A middleware returning
+// no Dispatcher fails the dispatch explicitly rather than through a nil call.
 func decorate(dispatcher Dispatcher, middlewares []DispatchMiddleware) Dispatcher {
-	for _, middleware := range slices.Backward(middlewares) {
-		if middleware != nil {
-			dispatcher = middleware(dispatcher)
+	for index, middleware := range slices.Backward(middlewares) {
+		if middleware == nil {
+			continue
+		}
+		if dispatcher = middleware(dispatcher); lo.IsNil(dispatcher) {
+			err := fmt.Errorf("%w: DispatchMiddlewares[%d] returned no Dispatcher", ErrInvalidConfig, index)
+			return DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, err })
 		}
 	}
 	return dispatcher

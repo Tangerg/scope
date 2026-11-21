@@ -138,7 +138,7 @@ func TestDispatchMiddlewareOutcomesAreAdmittedLikeADispatchers(t *testing.T) {
 			return DispatcherFunc(func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, cause })
 		}, FailureKindExternal, failureRuntimeDispatchFailed.Code()},
 		{"factory panic", func(Dispatcher) Dispatcher { panic(cause) }, FailureKindPanic, failureRuntimeDispatchFailed.Code()},
-		{"no dispatcher", func(Dispatcher) Dispatcher { return nil }, FailureKindPanic, failureRuntimeDispatchFailed.Code()},
+		{"no dispatcher", func(Dispatcher) Dispatcher { return nil }, FailureKindExternal, failureRuntimeDispatchFailed.Code()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := kernelRuntime(t, Config{DispatchMiddlewares: []DispatchMiddleware{test.middleware}})

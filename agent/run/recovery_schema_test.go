@@ -53,7 +53,7 @@ func TestRecoveryRejectsRetainedChildOutputOutsideItsProgramContract(t *testing.
 			child := Started{Process: controlValue(root.Child(key)), Program: program.children[0].ProgramRef(), Input: parent.Input, At: parent.At}
 			terminal := Termination{output: controlValue(EncodePayload("outside the integer contract"))}
 			checkpoint := Checkpoint{StartedProcesses: 2, Processes: []ProcessCheckpoint{
-				{Started: parent, State: controlValue(EncodeExecutionState("test.tree", treeFixtureState{Spawned: true})), Children: []StartedChild{{Key: key, Started: 5}}, Usage: Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedMessages: 1}, Yielded: true},
+				{Started: parent, State: controlValue(EncodeExecutionState("test.tree", treeFixtureState{ChildStarted: true})), Children: []StartedChild{{Key: key, Started: 5}}, Usage: Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedMessages: 1}, Yielded: true},
 				{Started: child, Terminal: &terminal, Usage: Usage{CommittedSteps: 1}},
 			}}
 			if exited {

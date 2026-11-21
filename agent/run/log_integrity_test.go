@@ -127,19 +127,19 @@ func TestExitedMustRepeatTheCommittedTerminalIntent(t *testing.T) {
 	}
 }
 
-func TestChildStartedRequiresItsExactCommittedSpawn(t *testing.T) {
+func TestChildStartedRequiresItsExactCommittedChildStart(t *testing.T) {
 	log := integrityInitialLog(t)
 	parent := log.Entries[0].Record.(Started)
 	key := controlValue(ParseChildKey("child"))
 	child := Started{Process: controlValue(log.Root.Child(key)), Program: parent.Program, Input: parent.Input, At: parent.At}
 	if err := integrityAppend(log, child).Validate(); !errors.Is(err, ErrInvalidChildStart) {
-		t.Fatalf("child started without a Spawn intent: %v", err)
+		t.Fatalf("child started without a child-start intent: %v", err)
 	}
-	spawn := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
-	prepared := integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{spawn})), At: parent.At})
+	childStart := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
+	prepared := integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{childStart})), At: parent.At})
 	settled := EffectSettled{ID: EffectID{Process: log.Root, Step: 1}, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At}
 	if err := integrityAppend(prepared, child).Validate(); !errors.Is(err, ErrInvalidLog) {
-		t.Fatalf("child Started became visible without its Spawn receipt: %v", err)
+		t.Fatalf("child Started became visible without its child-start receipt: %v", err)
 	}
 	if err := integrityAppend(prepared, child, settled).Validate(); err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestChildStartedRequiresItsExactCommittedSpawn(t *testing.T) {
 			changed := child
 			test.change(&changed)
 			if err := integrityAppend(prepared, changed, settled).Validate(); !errors.Is(err, ErrInvalidLog) {
-				t.Fatalf("child Started disagreed with its Spawn: %v", err)
+				t.Fatalf("child Started disagreed with its child start: %v", err)
 			}
 		})
 	}
@@ -186,7 +186,7 @@ func TestChildStartedRequiresItsExactCommittedSpawn(t *testing.T) {
 		})
 	}
 	if err := integrityAppend(prepared, child, Activated{Epoch: 2}, settled).Validate(); !errors.Is(err, ErrInvalidLog) {
-		t.Fatalf("activation split child Started from its Spawn receipt: %v", err)
+		t.Fatalf("activation split child Started from its child-start receipt: %v", err)
 	}
 }
 
@@ -195,9 +195,9 @@ func TestFrameworkAcknowledgmentRequiresTheCommittedRecipientChange(t *testing.T
 	parent := log.Entries[0].Record.(Started)
 	key := controlValue(ParseChildKey("child"))
 	child := Started{Process: controlValue(log.Root.Child(key)), Program: parent.Program, Input: parent.Input, At: parent.At}
-	spawn := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
-	spawned := integrityAppend(log,
-		Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{spawn})), At: parent.At},
+	childStart := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
+	childStarted := integrityAppend(log,
+		Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{childStart})), At: parent.At},
 		child, EffectSettled{ID: EffectID{Process: log.Root, Step: 1}, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At})
 	signal := Signal{ID: controlValue(ParseSignalID("message")), Payload: controlValue(EncodePayload("delivered"))}
 	for _, test := range []struct {
@@ -214,7 +214,7 @@ func TestFrameworkAcknowledgmentRequiresTheCommittedRecipientChange(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			effect := test.effect(child.Process)
-			prepared := integrityAppend(spawned, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, []Effect{effect})), At: parent.At})
+			prepared := integrityAppend(childStarted, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, []Effect{effect})), At: parent.At})
 			receipt := EffectSettled{ID: EffectID{Process: log.Root, Step: 2}, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`{}`))))), At: parent.At}
 			if err := integrityAppend(prepared, test.change(child.Process), receipt).Validate(); err != nil {
 				t.Fatalf("valid framework operation rejected: %v", err)
@@ -229,7 +229,7 @@ func TestFrameworkAcknowledgmentRequiresTheCommittedRecipientChange(t *testing.T
 				}
 			}
 			unauthorized := test.effect(log.Root)
-			wrongParent := integrityAppend(spawned, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, []Effect{unauthorized})), At: parent.At}, test.change(log.Root), receipt)
+			wrongParent := integrityAppend(childStarted, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, []Effect{unauthorized})), At: parent.At}, test.change(log.Root), receipt)
 			if err := wrongParent.Validate(); !errors.Is(err, ErrInvalidLog) {
 				t.Fatalf("framework acknowledgment invented direct-child authority: %v", err)
 			}

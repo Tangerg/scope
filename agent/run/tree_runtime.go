@@ -393,10 +393,6 @@ func (t *treeRuntime) stepped(result stepResult) {
 		t.failOn(t.reject(p, failure))
 		return
 	}
-	if int(result.transition.Consumed()) > len(job.turn.Messages) {
-		t.failOn(t.reject(p, newRuntimeFailure(failureExecutionTransitionInvalid, ErrInvalidTransition)))
-		return
-	}
 	t.failOn(t.commitStep(p, job.turn, result.transition))
 }
 
@@ -559,7 +555,7 @@ func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {
 	if p.terminal.Valid() {
 		return nil
 	}
-	if pending.Intent.Effect.spawn != nil {
+	if pending.Intent.Effect.start != nil {
 		t.childQueue = append(t.childQueue, id)
 		return t.startNextChild()
 	}
@@ -645,12 +641,12 @@ func (t *treeRuntime) framework(parent *processState, intent EffectIntent) error
 
 func (t *treeRuntime) childControl(parent *processState, effect Effect) ([]Record, error) {
 	switch {
-	case effect.send != nil:
-		child, err := t.state.child(parent.started.Process, effect.send.Child)
+	case effect.signal != nil:
+		child, err := t.state.child(parent.started.Process, effect.signal.Child)
 		if err != nil {
 			return nil, err
 		}
-		return t.signals(child, []Signal{effect.send.Signal})
+		return t.signals(child, []Signal{effect.signal.Signal})
 	case effect.cancel != nil:
 		child, err := t.state.child(parent.started.Process, effect.cancel.Child)
 		if err != nil || child.exited != nil {
@@ -682,7 +678,7 @@ func (t *treeRuntime) startNextChild() error {
 			}
 			continue
 		}
-		spec := *pending.Intent.Effect.spawn
+		spec := *pending.Intent.Effect.start
 		if _, err := t.state.admitChild(parent, spec); err != nil {
 			if settleErr := t.settleChildRequest(id, nil, newRuntimeFailure(failureRuntimeChildRequestInvalid, err)); settleErr != nil {
 				return settleErr
@@ -743,7 +739,7 @@ func (t *treeRuntime) childPrepared(result childResult) {
 		result.child = nil
 		result.failure = newRuntimeFailure(failureRuntimeChildRequestCanceled, ErrProcessFinished)
 	} else if result.child != nil {
-		spec := parent.pending[result.id].Intent.Effect.spawn
+		spec := parent.pending[result.id].Intent.Effect.start
 		if _, err := t.state.admitChild(parent, *spec); err != nil {
 			result.child = nil
 			result.failure = newRuntimeFailure(failureRuntimeChildRequestInvalid, err)
@@ -762,7 +758,7 @@ func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, fail
 	var err error
 	if child != nil {
 		records = append(records, child.started)
-		outcome, err = spawnedSettlement(child.started.Process)
+		outcome, err = childStartedSettlement(child.started.Process)
 	} else {
 		outcome, err = NewFailedSettlement(failure, Payload{})
 	}

@@ -217,19 +217,19 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 			t.Fatal("unacceptable result became a winner")
 		}
 	}
-	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.rejection", Description: "Retain spawn rejection.", Policy: FirstSuccess{MaxCandidates: 1, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) {
-		t.Fatal("rejected spawn reached predicate")
+	program := require(Compile[[]run.ChildSpec, FirstSuccessResult](compiler, Config{Name: "test.rejection", Description: "Retain child start rejection.", Policy: FirstSuccess{MaxCandidates: 1, Revision: "accept", Accept: func(run.ChildKey, run.Termination) (bool, error) {
+		t.Fatal("rejected child start reached predicate")
 		return true, nil
 	}}}))
 	execution := require(program.Definition().Start(input))
 	require(execution.Step(t.Context(), turn(1)))
-	failure := require(run.NewFailure(run.FailureKindContract, "test.rejected", "spawn rejected"))
+	failure := require(run.NewFailure(run.FailureKindContract, "test.rejected", "child start rejected"))
 	outcome := require(run.NewFailedSettlement(failure, run.Payload{}))
 	transition := require(execution.Step(t.Context(), turn(2, run.Completion{Effect: turn(1).EffectID(0), Outcome: outcome})))
 	output, ok := transition.Output()
 	result := require(output.Decode[FirstSuccessResult]())
 	if !ok || result.Winner != nil || result.Candidates[0].Rejection == nil || result.Candidates[0].Rejection.Code() != failure.Code() {
-		t.Fatal("spawn rejection lost its terminal evidence")
+		t.Fatal("child start rejection lost its terminal evidence")
 	}
 }
 
@@ -251,10 +251,10 @@ func TestCompetitionRestorationBindsEachObligationToItsDeclaredCandidate(t *test
 		name  string
 		state firstSuccessState
 	}{
-		{"duplicate spawn identity", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}, {Request: new(turn(1).EffectID(0))}}}},
-		{"swapped spawn identity", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(1))}, {Request: new(turn(1).EffectID(0))}}}},
-		{"different spawn turn", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}, {Request: new(turn(2).EffectID(1))}}}},
-		{"different spawn parent", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}, {Request: &otherRequest}}}},
+		{"duplicate child start identity", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}, {Request: new(turn(1).EffectID(0))}}}},
+		{"swapped child start identity", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(1))}, {Request: new(turn(1).EffectID(0))}}}},
+		{"different child start turn", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}, {Request: new(turn(2).EffectID(1))}}}},
+		{"different child start parent", firstSuccessState{Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}, {Request: &otherRequest}}}},
 		{"duplicate child", firstSuccessState{Calls: []child.Invocation{{Process: &processA}, {Process: &processA}}}},
 		{"undeclared child", firstSuccessState{Calls: []child.Invocation{{Process: &processA}, {Process: &foreign}}}},
 		{"different child parent", firstSuccessState{Calls: []child.Invocation{{Process: &processA}, {Process: &otherChild}}}},

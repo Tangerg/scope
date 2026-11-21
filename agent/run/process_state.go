@@ -145,7 +145,7 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 }
 
 func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
-	if stepped.Step != p.usage.CommittedSteps+1 || int(stepped.Delivered) > len(p.inbox) || stepped.Transition.Consumed() > stepped.Delivered || p.exited != nil || p.terminal.Valid() {
+	if stepped.Step != p.usage.CommittedSteps+1 || p.exited != nil || p.terminal.Valid() {
 		return ErrInvalidLog
 	}
 	transition := stepped.Transition
@@ -225,10 +225,10 @@ func (p *processState) settle(pending PendingCheckpoint, settled EffectSettled) 
 	p.yielded = false
 }
 
-// spawns reports whether a pending Spawn authorizes exactly this child.
-func (p *processState) spawns(spec ChildSpec) bool {
+// authorizesChild reports whether a pending child start declares exactly spec.
+func (p *processState) authorizesChild(spec ChildSpec) bool {
 	for _, pending := range p.pending {
-		if spawn := pending.Intent.Effect.spawn; spawn != nil && spawn.Equal(spec) {
+		if start := pending.Intent.Effect.start; start != nil && start.Equal(spec) {
 			return true
 		}
 	}
@@ -335,6 +335,9 @@ func (p *processState) orderedPending() []PendingCheckpoint {
 	return slices.SortedFunc(maps.Values(p.pending), func(a, b PendingCheckpoint) int { return a.Intent.ID.Compare(b.Intent.ID) })
 }
 
+// admitTransition is the one rule deciding whether p may commit transition
+// after delivered messages. Live commits apply it before append and the fold
+// applies it again, so a log can never hold a Step the Runtime would refuse.
 func (p *processState) admitTransition(transition Transition, limits TreeLimits, delivered uint32) error {
 	if !transition.Valid() || transition.consumed > delivered || int(delivered) > len(p.inbox) {
 		return ErrInvalidTransition
@@ -417,12 +420,12 @@ func (p *processState) result() Result[Payload] {
 func (p *processState) reservedMessages(effects []Effect) uint64 {
 	reserved := uint64(p.activeChildren) + uint64(len(p.pending)) + uint64(len(effects))
 	for _, pending := range p.pending {
-		if pending.Intent.Effect.spawn != nil {
+		if pending.Intent.Effect.start != nil {
 			reserved++
 		}
 	}
 	for _, effect := range effects {
-		if effect.spawn != nil {
+		if effect.start != nil {
 			reserved++
 		}
 	}

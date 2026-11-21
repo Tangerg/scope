@@ -138,12 +138,12 @@ func TestEffectsAndTransitionsUseOneCurrentWireSchema(t *testing.T) {
 		}
 	}
 	if spec, ok := effects[1].ChildStart(); !ok || spec.ProgramRef != program.ProgramRef() || spec.Key.String() != "child" {
-		t.Fatalf("spawn declaration changed: %+v", spec)
+		t.Fatalf("child start declaration changed: %+v", spec)
 	}
 	if _, ok := effects[0].ChildStart(); ok {
-		t.Fatal("Call was decoded as Spawn")
+		t.Fatal("Call was decoded as a child start")
 	}
-	for _, raw := range []string{`{}`, `{"call":0,"spawn":{}}`, `{"operation":"wait","payload":{}}`, `{"send":{"child":"root","signal":{}}}`, `{"cancel":{"child":"root","reason":" "}}`} {
+	for _, raw := range []string{`{}`, `{"call":0,"child_start":{}}`, `{"operation":"wait","payload":{}}`, `{"child_signal":{"child":"root","signal":{}}}`, `{"child_cancel":{"child":"root","reason":" "}}`} {
 		var effect Effect
 		if err := jsonv2.Unmarshal([]byte(raw), &effect); err == nil {
 			t.Fatalf("invalid Effect accepted: %s", raw)

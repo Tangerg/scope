@@ -210,7 +210,7 @@ func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
 		{"another call's child", func(state *executionState) {
 			state.ToolRound.Batch.Invocations[0].Child = &child.Invocation{Process: &secondProcess}
 		}},
-		{"spawn index differs from call slot", func(state *executionState) {
+		{"child start index differs from call slot", func(state *executionState) {
 			changed := testTurn(3).EffectID(2)
 			state.ToolRound.Batch.Invocations[0] = &callInvocation{Reference: changed, Child: &child.Invocation{Request: &changed}}
 		}},

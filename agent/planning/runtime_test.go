@@ -184,13 +184,13 @@ func TestPlanningChildActionUsesExplicitExitAndReobserves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spawned := 0
+	childStarted := 0
 	for _, entry := range log.Entries {
 		if started, ok := entry.Record.(run.Started); ok && started.Process.Depth() > 0 {
-			spawned++
+			childStarted++
 		}
 	}
-	if spawned != 1 || len(require(log.Inspect()).Processes) != 1 {
+	if childStarted != 1 || len(require(log.Inspect()).Processes) != 1 {
 		t.Fatal("child lifecycle not consumed and reaped")
 	}
 }

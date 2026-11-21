@@ -44,8 +44,8 @@ func (d *dynamicChildExecution) Snapshot() (ExecutionState, error) {
 
 func (d *dynamicChildExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	if turn.Step == 1 {
-		spawn := controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("temporary")), ProgramRef: d.definition.child, Input: controlValue(EncodePayload(0))}))
-		return Yield(0, []Effect{spawn})
+		childStart := controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("temporary")), ProgramRef: d.definition.child, Input: controlValue(EncodePayload(0))}))
+		return Yield(0, []Effect{childStart})
 	}
 	for _, message := range turn.Messages {
 		switch value := message.(type) {

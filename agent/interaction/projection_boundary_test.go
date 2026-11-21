@@ -335,7 +335,7 @@ func TestDelegateProjectionDistinguishesAdmissionRejectionAndChildFailure(t *tes
 				t.Fatal("failed child lost its admitted lifecycle")
 			}
 			if !entry.Reference.Valid() {
-				t.Fatal("failed spawn lost its committed effect identity")
+				t.Fatal("failed child start lost its committed effect identity")
 			}
 		})
 	}
@@ -344,6 +344,6 @@ func TestDelegateProjectionDistinguishesAdmissionRejectionAndChildFailure(t *tes
 		t.Fatal("empty attribution invented an admitted child")
 	}
 	if missing.Reference().Valid() {
-		t.Fatal("empty attribution invented a spawn reference")
+		t.Fatal("empty attribution invented a child start reference")
 	}
 }

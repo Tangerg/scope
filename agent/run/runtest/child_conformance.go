@@ -64,13 +64,13 @@ func checkChildAdmissionCancellation(t *testing.T, store run.Store) {
 			}
 		case run.EffectSettled:
 			if record.Outcome.Status() != run.SettlementStatusFailed {
-				t.Fatal("canceled local Spawn did not have a definite rejection")
+				t.Fatal("canceled local child start did not have a definite rejection")
 			}
 			rejected++
 		}
 	}
 	if rejected != 1 {
-		t.Fatalf("Spawn rejection count=%d, want 1", rejected)
+		t.Fatalf("child start rejection count=%d, want 1", rejected)
 	}
 }
 

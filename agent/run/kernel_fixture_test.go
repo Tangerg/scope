@@ -71,8 +71,8 @@ func (t *treeFixtureDefinition) Restore(_ context.Context, state ExecutionState)
 }
 
 type treeFixtureState struct {
-	Spawned bool
-	Exits   int
+	ChildStarted bool
+	Exits        int
 }
 
 type treeFixtureExecution struct {
@@ -86,8 +86,8 @@ func (t *treeFixtureExecution) Snapshot() (ExecutionState, error) {
 
 func (t *treeFixtureExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	consumed := uint32(len(turn.Messages))
-	if !t.state.Spawned && len(t.definition.children) > 0 {
-		t.state.Spawned = true
+	if !t.state.ChildStarted && len(t.definition.children) > 0 {
+		t.state.ChildStarted = true
 		effects := make([]Effect, len(t.definition.children))
 		for index, child := range t.definition.children {
 			effects[index] = controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("child-" + strconv.Itoa(index))), ProgramRef: child.ProgramRef(), Input: controlValue(EncodePayload(0)), Budget: t.definition.budget}))

@@ -301,7 +301,7 @@ func (h *historyProjector) settledModel(settled run.EffectSettled, sequence uint
 }
 
 func (h *historyProjector) settledDelegateStart(settled run.EffectSettled, call *projectedCall) error {
-	child, rejection, err := settled.Outcome.SpawnResult()
+	child, rejection, err := settled.Outcome.ChildStartResult()
 	if err != nil {
 		return err
 	}

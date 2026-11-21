@@ -93,7 +93,7 @@ func TestInputRequiredContinuationUsesTheOriginalEffectIdentity(t *testing.T) {
 		t.Fatalf("logical continuation identity changed: %+v", calls)
 	}
 	if calls[0].EffectID.Process != calls[1].EffectID.Process {
-		t.Fatal("ordinary tool continuation spawned a second process")
+		t.Fatal("ordinary tool continuation started a second process")
 	}
 }
 

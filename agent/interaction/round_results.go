@@ -101,7 +101,7 @@ func (r *RoundResults) callIndex(call chat.ToolCall) (uint32, bool) {
 	return 0, false
 }
 
-// delegateIndex finds the proposed call a Spawn intent executes. The child key
+// delegateIndex finds the proposed call a child-start intent executes. The child key
 // is derived from the call, so exactly one declared delegate call can match.
 func (r *RoundResults) delegateIndex(definition *definition, spec run.ChildSpec) (uint32, error) {
 	for index, call := range r.calls {

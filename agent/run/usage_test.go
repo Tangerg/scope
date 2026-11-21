@@ -11,12 +11,12 @@ func TestLogUsageRetainsReapedWorkAndCountsOnlyDefiniteMessages(t *testing.T) {
 	parent := log.Entries[0].Record.(Started)
 	key := controlValue(ParseChildKey("child"))
 	child := Started{Process: controlValue(log.Root.Child(key)), Program: parent.Program, Input: parent.Input, At: parent.At}
-	spawn := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
+	childStart := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
 	external := controlValue(NewDispatcherEffect(parent.Input, replayNever))
 	spawnID, externalID := EffectID{Process: log.Root, Step: 1}, EffectID{Process: log.Root, Step: 1, Index: 1}
 	signal := SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("input")), Payload: parent.Input}, At: parent.At}
 	log = integrityAppend(log, signal,
-		Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Yield(1, []Effect{spawn, external})), At: recordedNow()})
+		Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Yield(1, []Effect{childStart, external})), At: recordedNow()})
 	state := controlValue(projectLog(log))
 	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{state.processes[log.Root].materialize(controlValue(NewExecutionState("fixture", parent.Input)))}}
 	checkpointIndex := len(log.Entries)

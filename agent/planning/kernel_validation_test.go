@@ -257,7 +257,7 @@ func TestPlanningDispatcherRejectsLocalContractErrorsBeforeExternalWork(t *testi
 	}
 }
 
-func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
+func TestPlanningChildInputFailureDeclaresNoChildStart(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	stage := planningValue(workflow.Transform("identity", func(value string) (string, error) { return value, nil }))
 	program := planningValue(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.planning.child-input", Description: "Perform one planning action.", Revision: "one", Stages: []workflow.Stage{stage}}))
@@ -281,7 +281,7 @@ func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
 			transition := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))})))
 			failure, failed := transition.Failure()
 			if !failed || failure.Code() != test.code || failure.Kind() != run.FailureKindContract || len(transition.Effects()) != 0 {
-				t.Fatalf("invalid child input declared a Spawn: %+v", transition)
+				t.Fatalf("invalid child input declared a child start: %+v", transition)
 			}
 		})
 	}
@@ -309,8 +309,8 @@ func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 	definition := planningValue(config.definition())
 	execution := planningValue(definition.Start(planningValue(run.EncodePayload("task"))))
 	planningValue(execution.Step(t.Context(), validationTurn(1)))
-	spawn := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))})))
-	if _, ok := spawn.Effects()[0].ChildStart(); !ok {
+	childStart := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))})))
+	if _, ok := childStart.Effects()[0].ChildStart(); !ok {
 		t.Fatal("planning did not start a child")
 	}
 	failure := planningValue(run.NewFailure(run.FailureKindContract, "test.child.rejected", "admission refused"))

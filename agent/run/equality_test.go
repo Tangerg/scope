@@ -19,7 +19,7 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), ProgramRef: program.ProgramRef(), Input: controlValue(EncodePayload(0))}
 	signal := Signal{ID: controlValue(ParseSignalID("input")), Payload: controlValue(EncodePayload(1))}
 	call := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"b":[1.0,-0.0],"a":"x"}`))), replayNever))
-	spawn := controlValue(NewChildStartEffect(spec))
+	childStart := controlValue(NewChildStartEffect(spec))
 	send := controlValue(NewChildSignalEffect(child, signal))
 	cancel := controlValue(NewChildCancelEffect(child, "parent completed"))
 
@@ -31,7 +31,7 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 			t.Errorf("%s effect was accepted as committed evidence", name)
 		}
 	}
-	variants := []Effect{call, spawn, send, cancel}
+	variants := []Effect{call, childStart, send, cancel}
 	for i, left := range variants {
 		restored := roundTrip[Effect](t, left)
 		if !left.Equal(restored) || !restored.Equal(left) {
@@ -59,19 +59,19 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	otherCapabilities.Capabilities = controlValue(NewCapabilitySet(controlValue(ParseCapability("tests.write"))))
 	wait := controlValue(ParseWaitKey("answer"))
 	for name, changed := range map[string]Effect{
-		"literal 1 and 1.0": controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))), replayNever)),
-		"null payload":      controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))), replayNever)),
-		"spawn key":         controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("other")), ProgramRef: spec.ProgramRef, Input: spec.Input})),
-		"spawn program":     controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: otherProgram, Input: spec.Input})),
-		"spawn input":       controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: spec.ProgramRef, Input: controlValue(EncodePayload(1))})),
-		"spawn budget":      controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: spec.ProgramRef, Input: spec.Input, Budget: Budget{Steps: NewQuota(3)}})),
-		"spawn grants":      controlValue(NewChildStartEffect(otherCapabilities)),
-		"signal child":      controlValue(NewChildSignalEffect(sibling, signal)),
-		"signal id":         controlValue(NewChildSignalEffect(child, Signal{ID: controlValue(ParseSignalID("other")), Payload: signal.Payload})),
-		"signal wait":       controlValue(NewChildSignalEffect(child, Signal{ID: signal.ID, Wait: wait, Payload: signal.Payload})),
-		"signal payload":    controlValue(NewChildSignalEffect(child, Signal{ID: signal.ID, Payload: controlValue(EncodePayload(2))})),
-		"cancel child":      controlValue(NewChildCancelEffect(sibling, "parent completed")),
-		"cancel reason":     controlValue(NewChildCancelEffect(child, "superseded")),
+		"literal 1 and 1.0":   controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))), replayNever)),
+		"null payload":        controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))), replayNever)),
+		"child start key":     controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("other")), ProgramRef: spec.ProgramRef, Input: spec.Input})),
+		"child start program": controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: otherProgram, Input: spec.Input})),
+		"child start input":   controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: spec.ProgramRef, Input: controlValue(EncodePayload(1))})),
+		"child start budget":  controlValue(NewChildStartEffect(ChildSpec{Key: spec.Key, ProgramRef: spec.ProgramRef, Input: spec.Input, Budget: Budget{Steps: NewQuota(3)}})),
+		"child start grants":  controlValue(NewChildStartEffect(otherCapabilities)),
+		"signal child":        controlValue(NewChildSignalEffect(sibling, signal)),
+		"signal id":           controlValue(NewChildSignalEffect(child, Signal{ID: controlValue(ParseSignalID("other")), Payload: signal.Payload})),
+		"signal wait":         controlValue(NewChildSignalEffect(child, Signal{ID: signal.ID, Wait: wait, Payload: signal.Payload})),
+		"signal payload":      controlValue(NewChildSignalEffect(child, Signal{ID: signal.ID, Payload: controlValue(EncodePayload(2))})),
+		"cancel child":        controlValue(NewChildCancelEffect(sibling, "parent completed")),
+		"cancel reason":       controlValue(NewChildCancelEffect(child, "superseded")),
 	} {
 		for _, original := range variants {
 			if original.Equal(changed) || changed.Equal(original) {
@@ -84,7 +84,7 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	}
 
 	question := kernelWait()
-	transition := controlValue(Yield(1, []Effect{call, spawn}, question))
+	transition := controlValue(Yield(1, []Effect{call, childStart}, question))
 	if restored := roundTrip[Transition](t, transition); !transition.equal(restored) {
 		t.Error("transition changed across its wire form")
 	}
@@ -98,14 +98,14 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	stringAnswer.AnswerSchema = controlValue(jsonschema.For[string]())
 	failure := controlValue(NewFailure(FailureKindExecution, "tests.failed", "failed"))
 	for name, changed := range map[string]Transition{
-		"consumed":      controlValue(Yield(2, []Effect{call, spawn}, question)),
-		"effect order":  controlValue(Yield(1, []Effect{spawn, call}, question)),
+		"consumed":      controlValue(Yield(2, []Effect{call, childStart}, question)),
+		"effect order":  controlValue(Yield(1, []Effect{childStart, call}, question)),
 		"effect count":  controlValue(Yield(1, []Effect{call}, question)),
-		"kind":          controlValue(Continue(1, call, spawn)),
-		"answer schema": controlValue(Yield(1, []Effect{call, spawn}, unvalidated)),
-		"schema shape":  controlValue(Yield(1, []Effect{call, spawn}, stringAnswer)),
-		"answer bytes":  controlValue(Yield(1, []Effect{call, spawn}, widened)),
-		"question":      controlValue(Yield(1, []Effect{call, spawn}, asked)),
+		"kind":          controlValue(Continue(1, call, childStart)),
+		"answer schema": controlValue(Yield(1, []Effect{call, childStart}, unvalidated)),
+		"schema shape":  controlValue(Yield(1, []Effect{call, childStart}, stringAnswer)),
+		"answer bytes":  controlValue(Yield(1, []Effect{call, childStart}, widened)),
+		"question":      controlValue(Yield(1, []Effect{call, childStart}, asked)),
 	} {
 		if transition.equal(changed) || changed.equal(transition) {
 			t.Errorf("%s change compared equal", name)

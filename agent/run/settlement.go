@@ -136,10 +136,11 @@ type settlementWire struct {
 	Failure *Failure         `json:"failure,omitzero"`
 }
 
-// Framework Effects settle with payloads the kernel defines: a Spawn names the
-// started child, a Send or Cancel carries an empty object, and a rejection
-// carries its Failure. These constructors and SpawnResult are their one codec,
-// so strategies never depend on the encoding.
+// Framework Effects settle with payloads the kernel defines: a child start
+// names the started child, a child signal or cancellation carries an empty
+// object, and a rejection carries its Failure. These constructors and
+// ChildStartResult are their one codec, so strategies never depend on the
+// encoding.
 func frameworkSettlement(value any) (Settlement, error) {
 	payload, err := EncodePayload(value)
 	if err != nil {
@@ -148,23 +149,23 @@ func frameworkSettlement(value any) (Settlement, error) {
 	return Settlement{status: SettlementStatusSucceeded, payload: payload}, nil
 }
 
-func spawnedSettlement(child ProcessID) (Settlement, error) { return frameworkSettlement(child) }
+func childStartedSettlement(child ProcessID) (Settlement, error) { return frameworkSettlement(child) }
 
 func appliedSettlement() (Settlement, error) { return frameworkSettlement(struct{}{}) }
 
-// SpawnResult reads the outcome of a Spawn: the started child, or the Failure
-// that rejected the start. Exactly one of them is valid.
-func (s Settlement) SpawnResult() (ProcessID, Failure, error) {
+// ChildStartResult reads the outcome of a child start: the started child, or
+// the Failure that rejected the start. Exactly one of them is valid.
+func (s Settlement) ChildStartResult() (ProcessID, Failure, error) {
 	switch s.status {
 	case SettlementStatusSucceeded:
 		child, err := s.payload.Decode[ProcessID]()
 		if err != nil || !child.Valid() {
-			return ProcessID{}, Failure{}, fmt.Errorf("%w: spawn did not name its child", ErrInvalidSettlement)
+			return ProcessID{}, Failure{}, fmt.Errorf("%w: child start did not name its child", ErrInvalidSettlement)
 		}
 		return child, Failure{}, nil
 	case SettlementStatusFailed:
 		return ProcessID{}, s.failure, nil
 	default:
-		return ProcessID{}, Failure{}, fmt.Errorf("%w: spawn outcome is not definite", ErrInvalidSettlement)
+		return ProcessID{}, Failure{}, fmt.Errorf("%w: child start outcome is not definite", ErrInvalidSettlement)
 	}
 }

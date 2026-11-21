@@ -672,8 +672,8 @@ type childControlExecution struct {
 type childControlPhase uint8
 
 const (
-	childControlPrepareSpawn childControlPhase = iota
-	childControlAwaitSpawn
+	childControlPrepareStart childControlPhase = iota
+	childControlAwaitStart
 	childControlAwaitExit
 )
 
@@ -684,11 +684,11 @@ func (c *childControlExecution) Snapshot() (ExecutionState, error) {
 func (c *childControlExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	consumed := uint32(len(turn.Messages))
 	switch c.phase {
-	case childControlPrepareSpawn:
-		c.phase = childControlAwaitSpawn
-		spawn := controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("controlled")), ProgramRef: c.definition.child.ProgramRef(), Input: controlValue(EncodePayload(0))}))
-		return Yield(0, []Effect{spawn})
-	case childControlAwaitSpawn:
+	case childControlPrepareStart:
+		c.phase = childControlAwaitStart
+		childStart := controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("controlled")), ProgramRef: c.definition.child.ProgramRef(), Input: controlValue(EncodePayload(0))}))
+		return Yield(0, []Effect{childStart})
+	case childControlAwaitStart:
 		if len(turn.Messages) != 1 {
 			return Transition{}, ErrInvalidMessage
 		}

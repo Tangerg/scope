@@ -76,14 +76,14 @@ func NewChildStartEffect(spec ChildSpec) (Effect, error) {
 	if !spec.Valid() {
 		return Effect{}, ErrInvalidChildStart
 	}
-	return Effect{spawn: &spec}, nil
+	return Effect{start: &spec}, nil
 }
 
 func NewChildSignalEffect(child ProcessID, signal Signal) (Effect, error) {
 	if !child.Valid() || !signal.Valid() {
 		return Effect{}, ErrInvalidChildControl
 	}
-	return Effect{send: &childSignal{Child: child, Signal: signal}}, nil
+	return Effect{signal: &childSignal{Child: child, Signal: signal}}, nil
 }
 
 func NewChildCancelEffect(child ProcessID, reason string) (Effect, error) {

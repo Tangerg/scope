@@ -6,10 +6,11 @@
 // [Adapt] composes Transform, Call, and Transform to fit any child Program to
 // another role's ports, such as an Interaction serving as a Workflow branch.
 //
-// Child invocations advance from a Spawn Completion to an Exit. A successful
-// Spawn admits work; only Exit establishes that its subtree has drained. The
-// Runtime owns cancellation, mailbox delivery, persistence, and reaping. Workflow
-// owns only its stage cursor, business values, and outstanding invocations.
+// Child invocations advance from a child-start Completion to an Exit. A
+// successful child start admits work; only Exit establishes that its subtree
+// has drained. The Runtime owns cancellation, mailbox delivery, persistence,
+// and reaping. Workflow owns only its stage cursor, business values, and
+// outstanding invocations.
 //
 // Fork and Map preserve declaration order in their output while admitting
 // bounded windows of child work. A failed admission or child execution preserves

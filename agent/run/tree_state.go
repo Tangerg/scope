@@ -94,7 +94,7 @@ func (t *treeState) applyRecord(entry Entry) error {
 }
 
 // admitDuringChildStart enforces that a child's Started is committed together
-// with the settlement of the Spawn that requested it, and nothing else.
+// with the settlement of the child start that requested it, and nothing else.
 func (t *treeState) admitDuringChildStart(record Record) error {
 	if !t.unsettledChild.Valid() {
 		return nil
@@ -192,12 +192,12 @@ func (t *treeState) settle(settled EffectSettled) error {
 }
 
 func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outcome Settlement) error {
-	if spawn := effect.spawn; spawn != nil {
-		child, _, err := outcome.SpawnResult()
+	if start := effect.start; start != nil {
+		child, _, err := outcome.ChildStartResult()
 		if err != nil || child != t.unsettledChild {
 			return ErrInvalidChildStart
 		}
-		expected, err := parent.Child(spawn.Key)
+		expected, err := parent.Child(start.Key)
 		if err != nil || child != expected {
 			return ErrInvalidChildStart
 		}
@@ -207,13 +207,13 @@ func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outc
 	if _, err := outcome.payload.Decode[struct{}](); err != nil {
 		return ErrInvalidChildControl
 	}
-	if send := effect.send; send != nil {
-		child, err := t.child(parent, send.Child)
+	if signal := effect.signal; signal != nil {
+		child, err := t.child(parent, signal.Child)
 		if err != nil {
 			return err
 		}
-		receipt, exists := child.receipts[send.Signal.ID]
-		if !exists || receipt.Digest != send.Signal.digest() {
+		receipt, exists := child.receipts[signal.Signal.ID]
+		if !exists || receipt.Digest != signal.Signal.digest() {
 			return ErrInvalidChildControl
 		}
 		return nil
@@ -267,7 +267,7 @@ func (t *treeState) admitStart(started Started, lsn LSN) error {
 	if err != nil {
 		return err
 	}
-	if !parent.spawns(spec) {
+	if !parent.authorizesChild(spec) {
 		return ErrInvalidChildStart
 	}
 	if err := parent.adopt(spec.Key, debit, lsn); err != nil {

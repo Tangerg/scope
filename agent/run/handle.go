@@ -254,8 +254,8 @@ func (h *Handle[O]) awaitCommitted(ctx context.Context) (Result[O], error) {
 // containing the root's exit. Local commits wake readers; other writers are
 // polled, with each read starting after the last delivered position.
 func (h *Handle[O]) Observe(ctx context.Context, after LSN) iter.Seq2[Entry, error] {
+	ctx = requireContext(ctx)
 	return func(yield func(Entry, error) bool) {
-		ctx = requireContext(ctx)
 		root := h.id.Root()
 		through, err := h.terminalHead(ctx, after)
 		if err != nil {

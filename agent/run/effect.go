@@ -29,8 +29,8 @@ func (e EffectTarget) String() string { return enum.String(e) }
 // construction, so copies of an Effect share them safely.
 type Effect struct {
 	call   *dispatcherCall
-	spawn  *ChildSpec
-	send   *childSignal
+	start  *ChildSpec
+	signal *childSignal
 	cancel *childCancellation
 }
 
@@ -91,16 +91,16 @@ func (e Effect) Payload() Payload {
 
 // ChildStart reports the child a framework Effect starts.
 func (e Effect) ChildStart() (ChildSpec, bool) {
-	if e.spawn == nil {
+	if e.start == nil {
 		return ChildSpec{}, false
 	}
-	return *e.spawn, true
+	return *e.start, true
 }
 
 // Valid rejects the zero Effect. Every constructor admits exactly one valid
 // variant and the decoder admits only wellFormed values, so presence is enough.
 func (e Effect) Valid() bool {
-	return e.call != nil || e.spawn != nil || e.send != nil || e.cancel != nil
+	return e.call != nil || e.start != nil || e.signal != nil || e.cancel != nil
 }
 
 func (e Effect) wellFormed() bool {
@@ -111,14 +111,14 @@ func (e Effect) wellFormed() bool {
 		}
 		count++
 	}
-	if e.spawn != nil {
-		if !e.spawn.Valid() {
+	if e.start != nil {
+		if !e.start.Valid() {
 			return false
 		}
 		count++
 	}
-	if e.send != nil {
-		if !e.send.Child.Valid() || !e.send.Signal.Valid() {
+	if e.signal != nil {
+		if !e.signal.Child.Valid() || !e.signal.Signal.Valid() {
 			return false
 		}
 		count++
@@ -136,7 +136,7 @@ func (e Effect) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {
 		return nil, ErrInvalidEffect
 	}
-	return jsonv2.Marshal(effectWire{Call: e.call, Spawn: e.spawn, Send: e.send, Cancel: e.cancel})
+	return jsonv2.Marshal(effectWire{Call: e.call, ChildStart: e.start, ChildSignal: e.signal, ChildCancel: e.cancel})
 }
 
 func (e *Effect) UnmarshalJSON(data []byte) error {
@@ -147,7 +147,7 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	value := Effect{call: wire.Call, spawn: wire.Spawn, send: wire.Send, cancel: wire.Cancel}
+	value := Effect{call: wire.Call, start: wire.ChildStart, signal: wire.ChildSignal, cancel: wire.ChildCancel}
 	if !value.wellFormed() {
 		return ErrInvalidEffect
 	}
@@ -166,18 +166,18 @@ func (e Effect) Equal(other Effect) bool {
 	switch {
 	case e.call != nil:
 		return other.call != nil && e.call.equal(*other.call)
-	case e.spawn != nil:
-		return other.spawn != nil && e.spawn.Equal(*other.spawn)
-	case e.send != nil:
-		return other.send != nil && e.send.equal(*other.send)
+	case e.start != nil:
+		return other.start != nil && e.start.Equal(*other.start)
+	case e.signal != nil:
+		return other.signal != nil && e.signal.equal(*other.signal)
 	default:
 		return other.cancel != nil && *e.cancel == *other.cancel
 	}
 }
 
 type effectWire struct {
-	Call   *dispatcherCall    `json:"call,omitzero"`
-	Spawn  *ChildSpec         `json:"spawn,omitzero"`
-	Send   *childSignal       `json:"send,omitzero"`
-	Cancel *childCancellation `json:"cancel,omitzero"`
+	Call        *dispatcherCall    `json:"call,omitzero"`
+	ChildStart  *ChildSpec         `json:"child_start,omitzero"`
+	ChildSignal *childSignal       `json:"child_signal,omitzero"`
+	ChildCancel *childCancellation `json:"child_cancel,omitzero"`
 }

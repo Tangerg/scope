@@ -468,7 +468,7 @@ func TestAdmissionRejectsWholeProposalBeforeAnyToolEffect(t *testing.T) {
 	}
 }
 
-func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
+func TestDelegatesComposeThroughChildStartExitAndArtifactAdmission(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
 	type request struct {

@@ -134,7 +134,8 @@ func (s Stepped) Intents() []EffectIntent {
 }
 
 // EffectIntent is an Effect a committed Step declared, under its identity. It
-// is derived from Stepped, never recorded on its own.
+// is derived from Stepped and is never a log record of its own; a checkpoint
+// retains it only for an Effect still pending.
 type EffectIntent struct {
 	ID     EffectID `json:"id"`
 	Effect Effect   `json:"effect"`

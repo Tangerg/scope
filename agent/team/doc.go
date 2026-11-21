@@ -12,15 +12,16 @@
 //
 // Decisions transfer their next working state and work declarations into the
 // execution; a retained Decision never competes with those facts. Each task
-// advances from Spawn Completion to child Exit. Only Exit proves subtree drain.
-// Coordinator inputs are projections of current working state, tasks, controls,
-// and configured workers, never an independently writable copy.
+// advances from its child-start Completion to child Exit. Only Exit proves
+// subtree drain. Coordinator inputs are projections of current working state,
+// tasks, controls, and configured workers, never an independently writable copy.
 //
-// Controls compile to child Signal or Cancel Effects. A cancellation receipt
-// establishes intent; the task's Exit establishes release. Signals follow the
-// recipient's contract, including addressed InputGate waits or interaction
-// steering. Task keys name finite executions; follow-up work uses a new key and
-// explicit input carrying prior results or application-owned context.
+// Controls compile to child-signal or child-cancel Effects. A cancellation
+// receipt establishes intent; the task's Exit establishes release. Signals
+// follow the recipient's contract, including addressed InputGate waits or
+// interaction steering. Task keys name finite executions; follow-up work uses
+// a new key and explicit input carrying prior results or application-owned
+// context.
 //
 // Completion asks the Runtime to cancel and drain remaining descendants before
 // publishing this process's Exit. A task outcome is only the task's Exit, which

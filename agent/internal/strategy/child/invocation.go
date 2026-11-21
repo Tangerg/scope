@@ -90,7 +90,7 @@ func (i *Invocation) Accept(message run.Message) (bool, error) {
 		if i.Request == nil || value.Effect != *i.Request {
 			return false, nil
 		}
-		child, rejection, err := value.Outcome.SpawnResult()
+		child, rejection, err := value.Outcome.ChildStartResult()
 		if err != nil {
 			return false, fmt.Errorf("%w: %w", ErrInvalidMessage, err)
 		}
@@ -117,7 +117,7 @@ func (i *Invocation) Accept(message run.Message) (bool, error) {
 // Batch is the invocations one Step declared, in declaration order.
 type Batch []Invocation
 
-// Parent checks the batch as one declaration: each unanswered Spawn sits at its
+// Parent checks the batch as one declaration: each unanswered child start sits at its
 // own Effect index within one Step, each started child carries the key
 // expected at its position, and all share one parent. It returns that parent,
 // or zero when no invocation has reached the Runtime yet.
