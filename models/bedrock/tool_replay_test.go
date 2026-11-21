@@ -133,7 +133,7 @@ func TestConversePreservesExactOpenJSONNumbers(t *testing.T) {
 		corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993,"ratio":12345678901234567890.0123456789}`})),
 		corechat.NewToolMessage(corechat.ToolResult{ID: "call", Name: "lookup", Output: toolcontract.Output{Details: json.RawMessage(`{"id":9007199254740993}`)}}),
 	}, Tools: []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"const":9007199254740993}}}`)}}}
-	if err := request.Options.Extensions.Set(ChatRequestExtensionKey, ChatRequestOptions{AdditionalModelRequestFields: metadata.Map{"native": json.RawMessage(`9007199254740993`)}}); err != nil {
+	if err := request.Options.Extensions.Set(RequestExtensionKey, ChatRequestOptions{AdditionalModelRequestFields: metadata.Map{"native": json.RawMessage(`9007199254740993`)}}); err != nil {
 		t.Fatal(err)
 	}
 	input, _, err := model.buildConverseStreamInput(request)

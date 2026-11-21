@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// ChatRequestExtensionKey stores [ChatRequestOptions] in a Core request.
-	ChatRequestExtensionKey = Provider + "/request"
+	// RequestExtensionKey stores [ChatRequestOptions] in a Core request.
+	RequestExtensionKey = Provider + "/request"
 	// ChatMessageStopExtensionKey preserves the terminal provider outcome and native fields.
 	ChatMessageStopExtensionKey = Provider + "/message_stop"
 	// ChatMetadataExtensionKey preserves provider usage, metrics, and trace data.
@@ -81,7 +81,7 @@ func (c ChatConfig) Validate() error {
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("bedrock: DefaultOptions: %w", err)
 	}
-	if _, _, err := c.DefaultOptions.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey); err != nil {
+	if _, _, err := c.DefaultOptions.Extensions.Decode[ChatRequestOptions](RequestExtensionKey); err != nil {
 		return fmt.Errorf("bedrock: DefaultOptions: %w", err)
 	}
 	return nil
@@ -249,9 +249,9 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 			options.ReasoningEffort)
 	}
 
-	native, _, err := req.Options.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey)
+	native, _, err := req.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
-		return nil, fmt.Errorf("bedrock: extension %q: %w", ChatRequestExtensionKey, err)
+		return nil, fmt.Errorf("bedrock: extension %q: %w", RequestExtensionKey, err)
 	}
 
 	system, messages, err := mapProtocolMessages(req.Messages)

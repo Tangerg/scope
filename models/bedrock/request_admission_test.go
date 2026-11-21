@@ -30,7 +30,7 @@ func TestChatRejectsUnknownNativeControlsBeforeIO(t *testing.T) {
 			defer server.Close()
 			model := newBedrockBehaviorChat(t, server.URL)
 			request := newBedrockBehaviorRequest(t)
-			if err := request.Options.Extensions.Set(bedrock.ChatRequestExtensionKey, json.RawMessage(native)); err != nil {
+			if err := request.Options.Extensions.Set(bedrock.RequestExtensionKey, json.RawMessage(native)); err != nil {
 				t.Fatal(err)
 			}
 			response, err := model.Call(t.Context(), request)

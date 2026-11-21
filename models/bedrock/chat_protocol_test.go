@@ -44,7 +44,7 @@ func TestChatBuildConverseStreamInput(t *testing.T) {
 		}},
 		Options: corechat.Options{Temperature: &temperature},
 	}
-	if setExtensionErr := request.Options.Extensions.Set(ChatRequestExtensionKey, ChatRequestOptions{
+	if setExtensionErr := request.Options.Extensions.Set(RequestExtensionKey, ChatRequestOptions{
 		AdditionalModelRequestFields: metadata.Map{"thinking": []byte(`true`)},
 		RequestMetadata:              map[string]string{"tenant": "test"},
 	}); setExtensionErr != nil {

@@ -70,7 +70,7 @@ func TestChatRejectsNativeAliasesForCoreFactsBeforeIO(t *testing.T) {
 				if fromDefaults {
 					extensions = &defaults.Extensions
 				}
-				if err := extensions.Set(bedrock.ChatRequestExtensionKey, json.RawMessage(`{"additional_model_request_fields":`+test.native+`}`)); err != nil {
+				if err := extensions.Set(bedrock.RequestExtensionKey, json.RawMessage(`{"additional_model_request_fields":`+test.native+`}`)); err != nil {
 					t.Fatal(err)
 				}
 				model, err := bedrock.NewChat(t.Context(), bedrock.ChatConfig{
@@ -135,7 +135,7 @@ func TestChatKeepsNativeOnlyFieldsSeparateFromCoreProjection(t *testing.T) {
 			if err := jsonv2.Unmarshal([]byte(nativeJSON), &native); err != nil {
 				t.Fatal(err)
 			}
-			if err := request.Options.Extensions.Set(bedrock.ChatRequestExtensionKey, bedrock.ChatRequestOptions{AdditionalModelRequestFields: native}); err != nil {
+			if err := request.Options.Extensions.Set(bedrock.RequestExtensionKey, bedrock.ChatRequestOptions{AdditionalModelRequestFields: native}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := newBedrockBehaviorChat(t, server.URL).Call(t.Context(), request); err != nil {
@@ -169,7 +169,7 @@ func TestChatNativeDefaultsDoNotRequireModelSelection(t *testing.T) {
 	} {
 		t.Run(nativeJSON, func(t *testing.T) {
 			var config bedrock.ChatConfig
-			if err := config.DefaultOptions.Extensions.Set(bedrock.ChatRequestExtensionKey, json.RawMessage(`{"additional_model_request_fields":`+nativeJSON+`}`)); err != nil {
+			if err := config.DefaultOptions.Extensions.Set(bedrock.RequestExtensionKey, json.RawMessage(`{"additional_model_request_fields":`+nativeJSON+`}`)); err != nil {
 				t.Fatal(err)
 			}
 			if err := config.Validate(); err != nil {
