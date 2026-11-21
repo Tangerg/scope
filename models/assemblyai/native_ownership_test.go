@@ -26,7 +26,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				if err := extensions.Set(assemblyai.RequestExtensionKey, map[string]any{field: nil}); err != nil {
 					t.Fatal(err)
 				}
-				options := transcription.Options{Model: "test-model"}
+				options := transcription.Options{Model: assemblyai.ModelUniversal3Point5Pro}
 				audio, err := media.NewBytes("audio/mpeg", []byte("audio"))
 				if err != nil {
 					t.Fatal(err)
@@ -41,6 +41,12 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := assemblyai.NewTranscriptionModel(t.Context(), assemblyai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

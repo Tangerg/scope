@@ -84,6 +84,12 @@ func TestEmbeddingRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				model, err := nomic.NewEmbeddingModel(t.Context(), nomic.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if err == nil || !strings.Contains(err.Error(), field) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

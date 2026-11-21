@@ -46,6 +46,24 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 	if err != nil {
 		return nil, err
 	}
+	body, err := mapSpeechOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	first := &body.Utterances[0]
+	first.Text = req.Text
+	// Octave 2 needs a voice, but a request may supply it, so only the
+	// effective request has to carry one.
+	if body.Version == ModelOctave2 && first.Voice == nil {
+		return nil, errors.New("hume: speech: Octave 2 requires Options.Voice")
+	}
+	return body, nil
+}
+
+// mapSpeechOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapSpeechOptions(options speech.Options) (*ttsRequest, error) {
 	nativeFields, _, err := options.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
 	if err != nil {
 		return nil, err
@@ -57,7 +75,7 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 	if err != nil {
 		return nil, err
 	}
-	if err = projectSpeech(&body, req.Text, options); err != nil {
+	if err = projectSpeech(&body, options); err != nil {
 		return nil, err
 	}
 	return &body, nil
@@ -119,7 +137,7 @@ func admitUtterance(value any, options speech.Options) error {
 
 // projectSpeech writes Core's text, model, voice, speed and output format
 // into the single native utterance request.
-func projectSpeech(body *ttsRequest, text string, options speech.Options) error {
+func projectSpeech(body *ttsRequest, options speech.Options) error {
 	if options.Model != ModelOctave1 && options.Model != ModelOctave2 {
 		return fmt.Errorf("hume: speech: model must be %q or %q", ModelOctave1, ModelOctave2)
 	}
@@ -130,7 +148,6 @@ func projectSpeech(body *ttsRequest, text string, options speech.Options) error 
 		body.Utterances = []utterance{{}}
 	}
 	first := &body.Utterances[0]
-	first.Text = text
 	if options.Voice != "" {
 		if first.Voice == nil {
 			first.Voice = &voice{}
@@ -142,13 +159,7 @@ func projectSpeech(body *ttsRequest, text string, options speech.Options) error 
 		first.Speed = new(options.Speed)
 	}
 	body.Version = options.Model
-	if err := projectFormat(body, options.OutputFormat); err != nil {
-		return err
-	}
-	if body.Version == ModelOctave2 && first.Voice == nil {
-		return errors.New("hume: speech: Octave 2 requires Options.Voice")
-	}
-	return nil
+	return projectFormat(body, options.OutputFormat)
 }
 
 func projectFormat(body *ttsRequest, format string) error {

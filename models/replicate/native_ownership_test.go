@@ -56,10 +56,7 @@ func TestImageRejectsBoundNativeInputBeforeIO(t *testing.T) {
 			}
 			schema := replicate.ImageInputSchema{PromptKey: "prompt", NegativePromptKey: "negative", WidthKey: "width", HeightKey: "height", SeedKey: "seed", OutputFormatKey: "format", OutputFormats: map[media.Type]string{"image/png": "png"}, OutputKind: replicate.FileOutputURI}
 			model, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts, InputSchema: schema})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &image.Request{Prompt: "hello"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
+			if model != nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
 		})
@@ -78,10 +75,7 @@ func TestSpeechRejectsBoundNativeInputBeforeIO(t *testing.T) {
 			}
 			schema := replicate.SpeechInputSchema{TextKey: "text", VoiceKey: "speaker", SpeedKey: "speed", VoiceRequired: true, OutputKind: replicate.FileOutputURI}
 			model, err := replicate.NewSpeechModel(t.Context(), replicate.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts, InputSchema: schema})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
+			if model != nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
 		})

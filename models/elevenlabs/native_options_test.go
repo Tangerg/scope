@@ -208,28 +208,15 @@ func TestNativeOptionsRejectUnknownOrNullBeforeIO(t *testing.T) {
 			if err := transcriptionOptions.Extensions.Set(elevenlabs.TranscriptionRequestExtensionKey, json.RawMessage(extension)); err != nil {
 				t.Fatal(err)
 			}
-			transcriptionModel, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: transcriptionOptions})
-			if err != nil {
-				t.Fatal(err)
+			if model, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: transcriptionOptions}); err == nil || model != nil || calls != 0 {
+				t.Errorf("transcription model=%v error=%v calls=%d", model, err, calls)
 			}
-			audio, err := media.NewBytes("audio/wav", []byte("audio"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response, callErr := transcriptionModel.Call(t.Context(), &transcription.Request{Audio: audio}); callErr == nil || response != nil || calls != 0 {
-				t.Errorf("transcription response=%v error=%v calls=%d", response, callErr, calls)
-			}
-			calls = 0
 			speechOptions := speech.Options{Model: elevenlabs.ModelMultilingualV2, Voice: "voice-1"}
 			if setErr := speechOptions.Extensions.Set(elevenlabs.SpeechRequestExtensionKey, json.RawMessage(extension)); setErr != nil {
 				t.Fatal(setErr)
 			}
-			speechModel, err := elevenlabs.NewSpeechModel(t.Context(), elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speechOptions})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response, err := speechModel.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || response != nil || calls != 0 {
-				t.Errorf("speech response=%v error=%v calls=%d", response, err, calls)
+			if model, err := elevenlabs.NewSpeechModel(t.Context(), elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speechOptions}); err == nil || model != nil || calls != 0 {
+				t.Errorf("speech model=%v error=%v calls=%d", model, err, calls)
 			}
 		})
 	}

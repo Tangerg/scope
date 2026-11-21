@@ -46,7 +46,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := nativeTranscriptionRequest(t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -77,7 +78,9 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 }
 
 // nativeTranscriptionRequest reads the native options extension. Core owns the
-// model and language, so the extension may not name either, even as null.
+// model and language, so the extension may not name either, even as null. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
 func nativeTranscriptionRequest(options transcription.Options) (*transcriptionRequest, error) {
 	members, _, err := options.Extensions.Decode[map[string]jsontext.Value](TranscriptionRequestExtensionKey)
 	if err != nil {

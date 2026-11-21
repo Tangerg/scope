@@ -22,7 +22,11 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) Validate() error {
-	return i.Client.validateModelOptions(i.DefaultOptions.Model, i.DefaultOptions)
+	if err := i.Client.validateModelOptions(i.DefaultOptions.Model, i.DefaultOptions); err != nil {
+		return err
+	}
+	_, err := admitImageOptions(i.DefaultOptions)
+	return err
 }
 
 const (
@@ -121,13 +125,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content,
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if validateOptionsErr := i.validateOptions(effectiveOptions); validateOptionsErr != nil {
-		return "", nil, nil, validateOptionsErr
-	}
-
-	providerOptsValue, _, err := effectiveOptions.Extensions.Decode[ImageGenerationOptions](ImageRequestExtensionKey)
-
-	providerOpts := &providerOptsValue
+	providerOpts, err := admitImageOptions(effectiveOptions)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -142,19 +140,9 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content,
 		},
 	}
 	if effectiveOptions.Seed != nil {
-		if *effectiveOptions.Seed > math.MaxInt32 {
-			return "", nil, nil, fmt.Errorf("vertexai: image: seed exceeds int32: %d", *effectiveOptions.Seed)
-		}
 		config.Seed = new(int32(*effectiveOptions.Seed))
 	}
 	if effectiveOptions.OutputFormat != "" {
-		if effectiveOptions.OutputFormat != mediaTypePNG && effectiveOptions.OutputFormat != mediaTypeJPEG {
-			return "", nil, nil, fmt.Errorf("vertexai: image: unsupported output format %q; use %s or %s",
-				effectiveOptions.OutputFormat, mediaTypePNG, mediaTypeJPEG)
-		}
-		if config.ImageConfig == nil {
-			config.ImageConfig = &genai.ImageConfig{}
-		}
 		config.ImageConfig.OutputMIMEType = string(effectiveOptions.OutputFormat)
 	}
 
@@ -171,17 +159,34 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content,
 	return effectiveOptions.Model, contents, &config, nil
 }
 
-func (*ImageModel) validateOptions(options image.Options) error {
+// admitImageOptions admits the options alone and returns their native
+// controls. A binding applies it to its defaults at construction and to every
+// resolved request, so defaults no request could send fail when they are
+// configured.
+func admitImageOptions(options image.Options) (*ImageGenerationOptions, error) {
 	switch {
 	case options.Height != nil:
-		return errors.New("vertexai: image: height is not supported")
+		return nil, errors.New("vertexai: image: height is not supported")
 	case options.NegativePrompt != "":
-		return errors.New("vertexai: image: negative_prompt is not supported")
+		return nil, errors.New("vertexai: image: negative_prompt is not supported")
 	case options.Width != nil:
-		return errors.New("vertexai: image: width is not supported")
-	default:
-		return nil
+		return nil, errors.New("vertexai: image: width is not supported")
+	case options.Seed != nil && *options.Seed > math.MaxInt32:
+		return nil, fmt.Errorf("vertexai: image: seed exceeds int32: %d", *options.Seed)
+	case options.OutputFormat != "" && options.OutputFormat != mediaTypePNG && options.OutputFormat != mediaTypeJPEG:
+		return nil, fmt.Errorf("vertexai: image: unsupported output format %q; use %s or %s",
+			options.OutputFormat, mediaTypePNG, mediaTypeJPEG)
 	}
+	providerOpts, _, err := options.Extensions.Decode[ImageGenerationOptions](ImageRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for index, value := range providerOpts.InputImages {
+		if _, err := vertexImagePart(value); err != nil {
+			return nil, fmt.Errorf("vertexai: image: input_images[%d]: %w", index, err)
+		}
+	}
+	return &providerOpts, nil
 }
 
 func vertexImagePart(value *media.Media) (*genai.Part, error) {

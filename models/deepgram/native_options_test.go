@@ -82,15 +82,7 @@ func TestExtraCannotOverrideBoundQueryFields(t *testing.T) {
 			if err := opts.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"extra": map[string][]string{field: {"other"}}}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
-			if err != nil {
-				t.Fatal(err)
-			}
-			audio, err := media.NewBytes("audio/mpeg", []byte("audio"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &transcription.Request{Audio: audio}); err == nil {
+			if _, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts}); err == nil {
 				t.Fatal("Extra field accepted")
 			}
 		})
@@ -101,11 +93,7 @@ func TestExtraCannotOverrideBoundQueryFields(t *testing.T) {
 			if err := opts.Extensions.Set(deepgram.SpeechRequestExtensionKey, map[string]any{"extra": map[string][]string{field: {"other"}}}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil {
+			if _, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts}); err == nil {
 				t.Fatal("Extra field accepted")
 			}
 		})
@@ -123,28 +111,15 @@ func TestNativeOptionsRejectUnknownOrNullBeforeIO(t *testing.T) {
 			if err := transcriptionOptions.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, json.RawMessage(extension)); err != nil {
 				t.Fatal(err)
 			}
-			transcriptionModel, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: transcriptionOptions})
-			if err != nil {
-				t.Fatal(err)
+			if model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: transcriptionOptions}); err == nil || model != nil || calls != 0 {
+				t.Errorf("transcription model=%v error=%v calls=%d", model, err, calls)
 			}
-			audio, err := media.NewBytes("audio/wav", []byte("audio"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response, callErr := transcriptionModel.Call(t.Context(), &transcription.Request{Audio: audio}); callErr == nil || response != nil || calls != 0 {
-				t.Errorf("transcription response=%v error=%v calls=%d", response, callErr, calls)
-			}
-			calls = 0
 			speechOptions := speech.Options{Model: "aura-2-thalia-en"}
 			if setErr := speechOptions.Extensions.Set(deepgram.SpeechRequestExtensionKey, json.RawMessage(extension)); setErr != nil {
 				t.Fatal(setErr)
 			}
-			speechModel, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speechOptions})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response, err := speechModel.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || response != nil || calls != 0 {
-				t.Errorf("speech response=%v error=%v calls=%d", response, err, calls)
+			if model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speechOptions}); err == nil || model != nil || calls != 0 {
+				t.Errorf("speech model=%v error=%v calls=%d", model, err, calls)
 			}
 		})
 	}

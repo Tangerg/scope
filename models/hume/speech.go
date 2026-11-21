@@ -46,7 +46,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapSpeechOptions(s.DefaultOptions)
+	return err
 }
 
 var _ speech.Model = (*SpeechModel)(nil)

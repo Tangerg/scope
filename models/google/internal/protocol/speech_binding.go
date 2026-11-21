@@ -51,24 +51,38 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if validateOptionsErr := s.validateOptions(effectiveOptions); validateOptionsErr != nil {
-		return "", nil, nil, validateOptionsErr
-	}
-
-	config, fields, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(s.provider, SpeechRequestExtensionSuffix))
+	config, err := mapSpeechOptions(s.provider, effectiveOptions)
 	if err != nil {
 		return "", nil, nil, err
 	}
+	contents := []*genai.Content{genai.NewContentFromText(req.Text, genai.RoleUser)}
+	return effectiveOptions.Model, contents, config, nil
+}
+
+// mapSpeechOptions projects the options alone onto the native config. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapSpeechOptions(provider string, effectiveOptions speech.Options) (*genai.GenerateContentConfig, error) {
+	switch {
+	case effectiveOptions.OutputFormat != "":
+		return nil, errors.New("google: speech: output_format is not supported")
+	case effectiveOptions.Speed != 0:
+		return nil, errors.New("google: speech: speed is not supported")
+	}
+	config, fields, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(provider, SpeechRequestExtensionSuffix))
+	if err != nil {
+		return nil, err
+	}
 	if _, found := fields[speechResponseModalitiesField]; found {
-		return "", nil, nil, fmt.Errorf("google: speech: %s belongs to the audio capability: %w", speechResponseModalitiesField, metadata.ErrCoreOwnedField)
+		return nil, fmt.Errorf("google: speech: %s belongs to the audio capability: %w", speechResponseModalitiesField, metadata.ErrCoreOwnedField)
 	}
 	if raw, found := fields[speechConfigField]; found {
 		var speechFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &speechFields); err != nil {
-			return "", nil, nil, err
+			return nil, err
 		}
 		if _, found := speechFields[speechVoiceConfigField]; found {
-			return "", nil, nil, fmt.Errorf("google: speech: native %s: %w", speechVoiceConfigField, metadata.ErrCoreOwnedField)
+			return nil, fmt.Errorf("google: speech: native %s: %w", speechVoiceConfigField, metadata.ErrCoreOwnedField)
 		}
 	}
 	config.ResponseModalities = []string{string(genai.ModalityAudio)}
@@ -77,27 +91,11 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 			config.SpeechConfig = &genai.SpeechConfig{}
 		}
 		if config.SpeechConfig.MultiSpeakerVoiceConfig != nil {
-			return "", nil, nil, errors.New("google: speech: Core Voice conflicts with multi-speaker configuration")
+			return nil, errors.New("google: speech: Core Voice conflicts with multi-speaker configuration")
 		}
 		config.SpeechConfig.VoiceConfig = &genai.VoiceConfig{PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{VoiceName: effectiveOptions.Voice}}
 	}
-
-	contents := []*genai.Content{
-		genai.NewContentFromText(req.Text, genai.RoleUser),
-	}
-
-	return effectiveOptions.Model, contents, config, nil
-}
-
-func (*speechBinding) validateOptions(options speech.Options) error {
-	switch {
-	case options.OutputFormat != "":
-		return errors.New("google: speech: output_format is not supported")
-	case options.Speed != 0:
-		return errors.New("google: speech: speed is not supported")
-	default:
-		return nil
-	}
+	return config, nil
 }
 
 // errNoAudio signals "this chunk contained no audio Parts". Returned by

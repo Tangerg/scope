@@ -127,11 +127,8 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: opts})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &image.Request{Prompt: "landscape"}); err == nil || calls != 0 {
-				t.Fatalf("calls=%d error=%v", calls, err)
+			if model != nil || err == nil || calls != 0 {
+				t.Fatalf("model=%v calls=%d error=%v", model, calls, err)
 			}
 		})
 	}

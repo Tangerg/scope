@@ -41,7 +41,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.Polling.Validate(); err != nil {
 		return fmt.Errorf("revai: Polling: %w", err)
 	}
-	return nil
+	_, err := mapJobOptions(t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -123,6 +124,13 @@ func (t *TranscriptionModel) buildJobOptions(req *transcription.Request) (*jobOp
 	if err != nil {
 		return nil, err
 	}
+	return mapJobOptions(options)
+}
+
+// mapJobOptions projects the options alone onto the native job options.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapJobOptions(options transcription.Options) (*jobOptions, error) {
 	nativeFields, _, err := options.Extensions.Decode[map[string]json.RawMessage](RequestExtensionKey)
 	if err != nil {
 		return nil, err

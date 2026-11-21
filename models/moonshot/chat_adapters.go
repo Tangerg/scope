@@ -30,6 +30,9 @@ func (c ChatCompletionsConfig) Validate() error {
 	if err := c.protocol().Validate(); err != nil {
 		return fmt.Errorf("moonshot: %w", err)
 	}
+	if _, _, err := c.DefaultOptions.Extensions.Decode[ChatRequestOptions](RequestExtensionKey); err != nil {
+		return fmt.Errorf("moonshot: DefaultOptions: %w", err)
+	}
 	return nil
 }
 

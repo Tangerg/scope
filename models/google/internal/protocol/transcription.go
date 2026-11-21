@@ -27,7 +27,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapTranscriptionOptions(t.Provider, t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -64,11 +65,7 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if validateOptionsErr := t.validateOptions(effectiveOptions); validateOptionsErr != nil {
-		return "", nil, nil, validateOptionsErr
-	}
-
-	config, _, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(t.provider, TranscriptionRequestExtensionSuffix))
+	config, err := mapTranscriptionOptions(t.provider, effectiveOptions)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -89,11 +86,15 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 	return effectiveOptions.Model, contents, config, nil
 }
 
-func (*TranscriptionModel) validateOptions(options transcription.Options) error {
+// mapTranscriptionOptions projects the options alone onto the native config.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapTranscriptionOptions(provider string, options transcription.Options) (*genai.GenerateContentConfig, error) {
 	if options.Language != "" {
-		return errors.New("google: transcription: language is not supported")
+		return nil, errors.New("google: transcription: language is not supported")
 	}
-	return nil
+	config, _, err := decodeSingleCandidateConfig(options.Extensions, protocolKey(provider, TranscriptionRequestExtensionSuffix))
+	return config, err
 }
 
 func (t *TranscriptionModel) buildTranscriptionResponse(apiResp *genai.GenerateContentResponse) (*transcription.Response, error) {

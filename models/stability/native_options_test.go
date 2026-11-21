@@ -71,6 +71,14 @@ func TestImageCFGScaleFollowsResolvedModel(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := stability.NewImageModel(t.Context(), stability.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+			// Defaults must be admissible on their own, so a default cfg_scale
+			// needs a default model whose endpoint accepts it.
+			if test.model != stability.ModelSD3Point5Large {
+				if err == nil {
+					t.Fatal("construction admitted cfg_scale for a default model that refuses it")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

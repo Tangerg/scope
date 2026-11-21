@@ -3,6 +3,7 @@ package perplexity
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"iter"
 	"net/http"
 
@@ -17,7 +18,15 @@ type ResponsesConfig struct {
 	HTTPClient     *http.Client
 }
 
-func (r ResponsesConfig) Validate() error { return r.protocol().Validate() }
+func (r ResponsesConfig) Validate() error {
+	if err := r.protocol().Validate(); err != nil {
+		return err
+	}
+	if _, _, err := r.DefaultOptions.Extensions.Decode[RequestOptions](RequestExtensionKey); err != nil {
+		return fmt.Errorf("perplexity: DefaultOptions: %w", err)
+	}
+	return nil
+}
 
 func (r ResponsesConfig) protocol() openai.ChatModelConfig {
 	return openai.ChatModelConfig{APIKey: r.APIKey, DefaultOptions: r.DefaultOptions, BaseURL: cmp.Or(r.BaseURL, BaseURL), HTTPClient: r.HTTPClient}

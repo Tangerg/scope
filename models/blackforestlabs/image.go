@@ -64,7 +64,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.Polling.Validate(); err != nil {
 		return fmt.Errorf("blackforestlabs: Polling: %w", err)
 	}
-	return nil
+	_, err := mapImageOptions(i.DefaultOptions)
+	return err
 }
 
 var _ image.Model = (*ImageModel)(nil)
@@ -114,46 +115,57 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	if err != nil {
 		return "", nil, err
 	}
+	apiReq, err := mapImageOptions(effectiveOptions)
+	if err != nil {
+		return "", nil, err
+	}
+	apiReq.Prompt = req.Prompt
+	return effectiveOptions.Model, apiReq, nil
+}
+
+// mapImageOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapImageOptions(effectiveOptions image.Options) (*generateRequest, error) {
 	if effectiveOptions.NegativePrompt != "" {
-		return "", nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")
+		return nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")
 	}
 
 	raw, found, decodeErr := effectiveOptions.Extensions.Decode[json.RawMessage](ImageRequestExtensionKey)
 	if decodeErr != nil {
-		return "", nil, decodeErr
+		return nil, decodeErr
 	}
 	var nativeFields map[string]json.RawMessage
 	if found {
 		if err := jsonv2.Unmarshal(raw, &nativeFields); err != nil {
-			return "", nil, err
+			return nil, err
 		}
 	}
 	for _, field := range []string{requestFieldPrompt, requestFieldWidth, requestFieldHeight, requestFieldSeed, requestFieldOutputFormat} {
 		if _, exists := nativeFields[field]; exists {
-			return "", nil, fmt.Errorf("blackforestlabs: extension %q field %q: %w", ImageRequestExtensionKey, field, metadata.ErrCoreOwnedField)
+			return nil, fmt.Errorf("blackforestlabs: extension %q field %q: %w", ImageRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 
 	apiReq := &generateRequest{}
 	if found {
 		if nativeFields == nil {
-			return "", nil, errors.New("blackforestlabs: image request extension must be an object")
+			return nil, errors.New("blackforestlabs: image request extension must be an object")
 		}
 		if err := jsonv2.Unmarshal(raw, apiReq, jsonv2.RejectUnknownMembers(true)); err != nil {
-			return "", nil, err
+			return nil, err
 		}
 	}
-	apiReq.Prompt = req.Prompt
 	if effectiveOptions.Width != nil {
 		apiReq.Width = int(*effectiveOptions.Width)
 		if int64(apiReq.Width) != *effectiveOptions.Width {
-			return "", nil, fmt.Errorf("blackforestlabs: image: width %d exceeds int", *effectiveOptions.Width)
+			return nil, fmt.Errorf("blackforestlabs: image: width %d exceeds int", *effectiveOptions.Width)
 		}
 	}
 	if effectiveOptions.Height != nil {
 		apiReq.Height = int(*effectiveOptions.Height)
 		if int64(apiReq.Height) != *effectiveOptions.Height {
-			return "", nil, fmt.Errorf("blackforestlabs: image: height %d exceeds int", *effectiveOptions.Height)
+			return nil, fmt.Errorf("blackforestlabs: image: height %d exceeds int", *effectiveOptions.Height)
 		}
 	}
 	if effectiveOptions.Seed != nil {
@@ -162,7 +174,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	if effectiveOptions.OutputFormat != "" {
 		apiReq.OutputFormat = effectiveOptions.OutputFormat.Subtype()
 	}
-	return effectiveOptions.Model, apiReq, nil
+	return apiReq, nil
 }
 
 func (i *ImageModel) runGeneration(ctx context.Context, model string, request *generateRequest) (*asyncResponse, *pollResult, error) {

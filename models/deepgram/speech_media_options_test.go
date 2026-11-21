@@ -47,6 +47,12 @@ func TestSpeechRejectsInvalidMediaControlsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if err == nil || calls != 0 {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

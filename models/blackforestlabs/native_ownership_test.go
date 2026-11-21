@@ -41,10 +41,13 @@ func TestImageRejectsUnsupportedNativeFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
-				if err != nil {
-					t.Fatal(err)
+				// A default refused at construction never reaches a call.
+				if !defaults {
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = model.Call(t.Context(), request)
 				}
-				_, err = model.Call(t.Context(), request)
 				refused := errors.Is(err, metadata.ErrCoreOwnedField)
 				if field == "unknown_field" {
 					refused = err != nil && strings.Contains(err.Error(), "unknown")

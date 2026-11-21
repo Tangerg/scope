@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -86,19 +87,30 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 }
 
 func decodeRequestOptions(source *corechat.Request, nativeKey string) (ChatRequestOptions, error) {
-	fields, _, err := source.Options.Extensions.Decode[map[string]any](nativeKey)
+	options, err := decodeExtensions(source.Options.Extensions, nativeKey)
+	if err != nil {
+		return ChatRequestOptions{}, err
+	}
+	if err := options.validateRequest(source); err != nil {
+		return ChatRequestOptions{}, err
+	}
+	return options, nil
+}
+
+// decodeExtensions admits the typed extension and the protocol's native one,
+// which may not set thinking. A binding applies it to its defaults at
+// construction and to every resolved request.
+func decodeExtensions(extensions metadata.Extensions, nativeKey string) (ChatRequestOptions, error) {
+	fields, _, err := extensions.Decode[map[string]any](nativeKey)
 	if err != nil {
 		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q: %w", nativeKey, err)
 	}
 	if _, exists := fields[thinkingField]; exists {
 		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q field thinking is owned by %q", nativeKey, RequestExtensionKey)
 	}
-	options, _, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	options, _, err := extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
-	}
-	if err := options.validateRequest(source); err != nil {
-		return ChatRequestOptions{}, err
 	}
 	return options, nil
 }

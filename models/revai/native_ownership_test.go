@@ -26,7 +26,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				if err := extensions.Set(revai.RequestExtensionKey, map[string]any{field: nil}); err != nil {
 					t.Fatal(err)
 				}
-				options := transcription.Options{Model: "test-model"}
+				options := transcription.Options{Model: revai.ModelMachine}
 				audio, err := media.NewBytes("audio/mpeg", []byte("audio"))
 				if err != nil {
 					t.Fatal(err)
@@ -41,6 +41,12 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -87,10 +93,12 @@ func TestAudioSourceCannotBeSuppliedByNativeConfiguration(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
-				if err != nil {
-					t.Fatal(err)
+				if !defaults {
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = model.Call(t.Context(), request)
 				}
-				_, err = model.Call(t.Context(), request)
 				server.Close()
 				if err == nil || requests != 0 {
 					t.Fatalf("source=%s defaults=%t native=%#v requests=%d error=%v", source, defaults, native, requests, err)

@@ -40,7 +40,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapSpeechOptions(s.DefaultOptions)
+	return err
 }
 
 var _ speech.Model = (*SpeechModel)(nil)
@@ -77,17 +78,28 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	if err != nil {
 		return "", nil, err
 	}
+	params, err := mapSpeechOptions(effectiveOptions)
+	if err != nil {
+		return "", nil, err
+	}
+	return req.Text, params, nil
+}
+
+// mapSpeechOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapSpeechOptions(effectiveOptions speech.Options) (*speakParams, error) {
 	if effectiveOptions.Voice != "" {
-		return "", nil, errors.New("deepgram: speech: unsupported option: voice")
+		return nil, errors.New("deepgram: speech: unsupported option: voice")
 	}
 
 	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
 	if decodeErr != nil {
-		return "", nil, decodeErr
+		return nil, decodeErr
 	}
 	for _, field := range []string{fieldModel, fieldEncoding, fieldContainer, fieldSpeed, fieldText} {
 		if _, exists := nativeFields[field]; exists {
-			return "", nil, fmt.Errorf("deepgram: extension %q field %q: %w", SpeechRequestExtensionKey, field, metadata.ErrCoreOwnedField)
+			return nil, fmt.Errorf("deepgram: extension %q field %q: %w", SpeechRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 
@@ -95,11 +107,11 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 
 	params := &paramsValue
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	for _, field := range []string{fieldModel, fieldEncoding, fieldContainer, fieldSampleRate, fieldBitRate, fieldSpeed, fieldText} {
 		if _, exists := params.Extra[field]; exists {
-			return "", nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", SpeechRequestExtensionKey, field)
+			return nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", SpeechRequestExtensionKey, field)
 		}
 	}
 	params.Model = effectiveOptions.Model
@@ -111,7 +123,7 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 		case formatMP3, formatFLAC, formatAAC, formatOPUS, formatMULAW, formatALAW, formatLINEAR16:
 			params.Encoding = effectiveOptions.OutputFormat
 		default:
-			return "", nil, fmt.Errorf("deepgram: speech: unsupported output format %q", effectiveOptions.OutputFormat)
+			return nil, fmt.Errorf("deepgram: speech: unsupported output format %q", effectiveOptions.OutputFormat)
 		}
 	}
 	// Deepgram documents the speed range as 0.7 to 1.5 for the Aura-2 voices
@@ -120,15 +132,15 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	// recommendation is guidance for the caller, not a limit of the API.
 	if effectiveOptions.Speed != 0 {
 		if effectiveOptions.Speed < minimumSpeechSpeed || effectiveOptions.Speed > maximumSpeechSpeed {
-			return "", nil, errors.New("deepgram: speech: speed must be between 0.7 and 1.5")
+			return nil, errors.New("deepgram: speech: speed must be between 0.7 and 1.5")
 		}
 		params.Speed = effectiveOptions.Speed
 	}
 	if err := params.validateMediaControls(); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
-	return req.Text, params, nil
+	return params, nil
 }
 
 type speechResponseMetadata struct {

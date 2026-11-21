@@ -41,6 +41,12 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

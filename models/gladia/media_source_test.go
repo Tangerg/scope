@@ -3,6 +3,7 @@ package gladia_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/gladia"
 )
@@ -133,15 +135,8 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := gladia.NewTranscriptionModel(t.Context(), gladia.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
-			if err != nil {
-				t.Fatal(err)
-			}
-			audio, err := media.NewBytes("audio/mpeg", []byte("audio"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &transcription.Request{Audio: audio}); err == nil || calls != 0 {
-				t.Fatalf("calls=%d error=%v", calls, err)
+			if model != nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
+				t.Fatalf("model=%v calls=%d error=%v", model, calls, err)
 			}
 		})
 	}

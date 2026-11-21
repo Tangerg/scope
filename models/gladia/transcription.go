@@ -39,7 +39,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.Polling.Validate(); err != nil {
 		return fmt.Errorf("gladia: Polling: %w", err)
 	}
-	return nil
+	_, err := mapTranscriptionOptions(t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -107,6 +108,13 @@ func (t *TranscriptionModel) buildRequest(req *transcription.Request) (*transcri
 	if err != nil {
 		return nil, err
 	}
+	return mapTranscriptionOptions(options)
+}
+
+// mapTranscriptionOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapTranscriptionOptions(options transcription.Options) (*transcriptionRequest, error) {
 	nativeFields, _, err := options.Extensions.Decode[map[string]any](RequestExtensionKey)
 	if err != nil {
 		return nil, err

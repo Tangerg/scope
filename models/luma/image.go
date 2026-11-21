@@ -63,7 +63,10 @@ func (i ImageModelConfig) Validate() error {
 	if i.MaxOutputBytes < 0 {
 		return errors.New("luma: MaxOutputBytes must not be negative")
 	}
-	_, err := outputOrigins(i.OutputOrigins)
+	if _, err := outputOrigins(i.OutputOrigins); err != nil {
+		return err
+	}
+	_, err := mapGenerationOptions(i.DefaultOptions)
 	return err
 }
 
@@ -140,7 +143,19 @@ func (i *ImageModel) generationParams(request *image.Request) (lumaagents.Genera
 	if err != nil {
 		return lumaagents.GenerationNewParams{}, err
 	}
-	if err = rejectUnsupportedOptions(effectiveOptions); err != nil {
+	params, err := mapGenerationOptions(effectiveOptions)
+	if err != nil {
+		return lumaagents.GenerationNewParams{}, err
+	}
+	params.Prompt = lumaagents.F(request.Prompt)
+	return params, nil
+}
+
+// mapGenerationOptions projects the options alone onto the native generation.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapGenerationOptions(effectiveOptions image.Options) (lumaagents.GenerationNewParams, error) {
+	if err := rejectUnsupportedOptions(effectiveOptions); err != nil {
 		return lumaagents.GenerationNewParams{}, err
 	}
 	// Decoding the extension validates it.
@@ -149,9 +164,8 @@ func (i *ImageModel) generationParams(request *image.Request) (lumaagents.Genera
 		return lumaagents.GenerationNewParams{}, fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)
 	}
 	params := lumaagents.GenerationNewParams{
-		Prompt: lumaagents.F(request.Prompt),
-		Model:  lumaagents.F(lumaagents.Model(effectiveOptions.Model)),
-		Type:   lumaagents.F(lumaagents.GenerationNewParamsTypeImage),
+		Model: lumaagents.F(lumaagents.Model(effectiveOptions.Model)),
+		Type:  lumaagents.F(lumaagents.GenerationNewParamsTypeImage),
 	}
 	options.apply(&params)
 	if effectiveOptions.OutputFormat != "" {

@@ -37,11 +37,8 @@ func TestSpeechRejectsNativeCoreInputsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				model, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || calls != 0 {
-					t.Fatalf("calls=%d error=%v", calls, err)
+				if model != nil || err == nil || calls != 0 {
+					t.Fatalf("model=%v calls=%d error=%v", model, calls, err)
 				}
 			})
 		}
@@ -119,11 +116,8 @@ func TestNativeOptionsRejectUnknownOrNullBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || response != nil || calls != 0 {
-				t.Fatalf("speech response=%v error=%v calls=%d", response, err, calls)
+			if model != nil || err == nil || calls != 0 {
+				t.Fatalf("speech model=%v error=%v calls=%d", model, err, calls)
 			}
 		})
 	}

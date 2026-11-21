@@ -35,7 +35,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := newJobRequest(i.DefaultOptions)
+	return err
 }
 
 var _ image.Model = (*ImageModel)(nil)
@@ -69,16 +70,14 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	apiReq, err := newJobRequest(req.Prompt, effectiveOptions)
+	apiReq, err := newJobRequest(effectiveOptions)
+	if err == nil {
+		err = apiReq.setConfig(fieldPrompt, req.Prompt)
+	}
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	accept := string(effectiveOptions.OutputFormat)
-	switch accept {
-	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:
-	default:
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("prodia: image: output_format must be image/jpeg, image/png, or image/webp")}
-	}
 	body, hdr, err := i.api.job(ctx, *apiReq, accept)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
@@ -86,9 +85,16 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	return newJobResponse(apiReq.Type, body, hdr.Get(headerContentType), accept)
 }
 
-// newJobRequest merges the caller's native job extension with the Core
-// prompt, model and options, rejecting extension fields Core owns.
-func newJobRequest(prompt string, options image.Options) (*jobRequest, error) {
+// newJobRequest merges the caller's native job extension with the Core model
+// and options, rejecting extension fields Core owns. A binding applies it to
+// its defaults at construction and to every resolved request, so defaults no
+// request could send fail when they are configured.
+func newJobRequest(options image.Options) (*jobRequest, error) {
+	switch options.OutputFormat {
+	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:
+	default:
+		return nil, errors.New("prodia: image: output_format must be image/jpeg, image/png, or image/webp")
+	}
 	nativeFields, _, err := options.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
 	if err != nil {
 		return nil, err
@@ -108,9 +114,6 @@ func newJobRequest(prompt string, options image.Options) (*jobRequest, error) {
 		if _, exists := request.Config[field]; exists {
 			return nil, fmt.Errorf("prodia: config field %q: %w", field, metadata.ErrCoreOwnedField)
 		}
-	}
-	if err := request.setConfig(fieldPrompt, prompt); err != nil {
-		return nil, err
 	}
 	if err := request.setCoreOptions(options); err != nil {
 		return nil, err

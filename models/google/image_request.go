@@ -69,22 +69,9 @@ func newImageInteractionRequest(req *image.Request, defaults image.Options) (*im
 	if err != nil {
 		return nil, err
 	}
-	if validateOptionsErr := validateImageOptions(effectiveOptions); validateOptionsErr != nil {
-		return nil, validateOptionsErr
-	}
-
-	providerOptsValue, _, err := effectiveOptions.Extensions.Decode[ImageGenerationOptions](ImageRequestExtensionKey)
-
-	providerOpts := &providerOptsValue
+	providerOpts, err := admitImageOptions(effectiveOptions)
 	if err != nil {
 		return nil, err
-	}
-	if err := providerOpts.validate(effectiveOptions.Model); err != nil {
-		return nil, err
-	}
-	if effectiveOptions.OutputFormat != "" && effectiveOptions.OutputFormat != mediaTypePNG && effectiveOptions.OutputFormat != mediaTypeJPEG {
-		return nil, fmt.Errorf("google: image: unsupported output format %q; use %s or %s",
-			effectiveOptions.OutputFormat, mediaTypePNG, mediaTypeJPEG)
 	}
 
 	responseFormat := imageInteractionResponseFormat{
@@ -99,9 +86,6 @@ func newImageInteractionRequest(req *image.Request, defaults image.Options) (*im
 		ThinkingSummaries: providerOpts.ThinkingSummaries,
 	}
 	if effectiveOptions.Seed != nil {
-		if *effectiveOptions.Seed > int64(math.MaxInt32) {
-			return nil, fmt.Errorf("google: image: seed exceeds int32: %d", *effectiveOptions.Seed)
-		}
 		generationConfig.Seed = new(int32(*effectiveOptions.Seed))
 	}
 	if generationConfig.Seed == nil && generationConfig.ThinkingLevel == "" && generationConfig.ThinkingSummaries == "" {
@@ -140,6 +124,36 @@ func newImageInteractionRequest(req *image.Request, defaults image.Options) (*im
 		}}
 	}
 	return apiReq, nil
+}
+
+// admitImageOptions admits the options alone and returns their native
+// controls. A binding applies it to its defaults at construction and to every
+// resolved request, so defaults no request could send fail when they are
+// configured.
+func admitImageOptions(options image.Options) (*ImageGenerationOptions, error) {
+	if err := validateImageOptions(options); err != nil {
+		return nil, err
+	}
+	providerOpts, _, err := options.Extensions.Decode[ImageGenerationOptions](ImageRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := providerOpts.validate(options.Model); err != nil {
+		return nil, err
+	}
+	if options.OutputFormat != "" && options.OutputFormat != mediaTypePNG && options.OutputFormat != mediaTypeJPEG {
+		return nil, fmt.Errorf("google: image: unsupported output format %q; use %s or %s",
+			options.OutputFormat, mediaTypePNG, mediaTypeJPEG)
+	}
+	if options.Seed != nil && *options.Seed > int64(math.MaxInt32) {
+		return nil, fmt.Errorf("google: image: seed exceeds int32: %d", *options.Seed)
+	}
+	for index, value := range providerOpts.InputImages {
+		if _, err := imageInteractionContentFromMedia(value); err != nil {
+			return nil, fmt.Errorf("google: image: input_images[%d]: %w", index, err)
+		}
+	}
+	return &providerOpts, nil
 }
 
 func validateImageOptions(options image.Options) error {

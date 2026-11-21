@@ -63,6 +63,12 @@ func TestEmbeddingExtensionsRejectHTTPEnvelopeOverridesBeforeIO(t *testing.T) {
 				} else {
 					model, err = google.NewEmbeddingModel(t.Context(), google.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: defaults})
 				}
+				if source == "defaults" {
+					if err == nil || calls.Load() != 0 {
+						t.Fatalf("construction error = %v, calls = %d; want refusal of the default envelope", err, calls.Load())
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

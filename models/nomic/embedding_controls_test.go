@@ -60,6 +60,12 @@ func TestEmbeddingNativeControlAdmission(t *testing.T) {
 					}
 				}
 				model, err := nomic.NewEmbeddingModel(t.Context(), nomic.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults && !test.valid {
+					if err == nil {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -94,7 +94,27 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, _, err := admitEmbeddingOptions(e.DefaultOptions)
+	return err
+}
+
+// admitEmbeddingOptions selects the model family and admits the options
+// alone against it. A binding applies it to its defaults at construction and
+// to every resolved request, so defaults no request could send fail when they
+// are configured.
+func admitEmbeddingOptions(options embedding.Options) (embeddingFamily, *EmbeddingRequestOptions, error) {
+	native, _, err := options.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
+	if err != nil {
+		return 0, nil, err
+	}
+	family, err := classifyEmbeddingModel(options.Model)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := family.validateOptions(options.Dimensions, &native); err != nil {
+		return 0, nil, err
+	}
+	return family, &native, nil
 }
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
@@ -135,13 +155,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 	effective.Options = effectiveOptions
 	req = &effective
 
-	nativeValue, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	native := &nativeValue
-
-	family, err := classifyEmbeddingModel(effectiveOptions.Model)
+	family, native, err := admitEmbeddingOptions(effectiveOptions)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
@@ -149,7 +163,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 	var batch *embeddingBatch
 	switch family {
 	case embeddingFamilyTitanV1, embeddingFamilyTitanV2:
-		bodies, preparationErr := family.encodeTitanRequests(req.Texts, effectiveOptions.Dimensions, native)
+		bodies, preparationErr := encodeTitanRequests(req.Texts, effectiveOptions.Dimensions, native)
 		if preparationErr != nil {
 			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: preparationErr}
 		}
@@ -270,40 +284,59 @@ type titanEmbeddingResponse struct {
 }
 
 // The complete batch must pass local admission before any input can execute.
-func (e embeddingFamily) encodeTitanRequests(texts []string, dimensions *int64, native *EmbeddingRequestOptions) ([][]byte, error) {
+// validateOptions admits the dimensions and native controls the family's
+// wire contract accepts.
+func (e embeddingFamily) validateOptions(dimensions *int64, native *EmbeddingRequestOptions) error {
+	if e == embeddingFamilyTitanV1 || e == embeddingFamilyTitanV2 {
+		return e.validateTitanOptions(dimensions, native)
+	}
 	if native.InputType != "" {
-		return nil, fmt.Errorf("bedrock: embedding extension %q input_type is unsupported by Amazon Titan", EmbeddingRequestExtensionKey)
+		if err := validateCohereInputType(native.InputType); err != nil {
+			return err
+		}
+	}
+	if err := e.validateTruncate(native.Truncate); err != nil {
+		return err
+	}
+	if native.Normalize != nil {
+		return fmt.Errorf("bedrock: embedding extension %q normalize is unsupported by Cohere Embed", EmbeddingRequestExtensionKey)
+	}
+	if e == embeddingFamilyCohereV3 && dimensions != nil {
+		return errors.New("bedrock: embedding: dimensions are unsupported by Cohere Embed V3")
+	}
+	if e == embeddingFamilyCohereV4 {
+		return validateDimensions("Cohere Embed V4", dimensions,
+			embeddingDimension256, embeddingDimension512, embeddingDimension1024, embeddingDimension1536)
+	}
+	return nil
+}
+
+func (e embeddingFamily) validateTitanOptions(dimensions *int64, native *EmbeddingRequestOptions) error {
+	if native.InputType != "" {
+		return fmt.Errorf("bedrock: embedding extension %q input_type is unsupported by Amazon Titan", EmbeddingRequestExtensionKey)
 	}
 	if native.Truncate != "" {
-		return nil, fmt.Errorf("bedrock: embedding extension %q truncate is unsupported by Amazon Titan", EmbeddingRequestExtensionKey)
-	}
-	if e == embeddingFamilyTitanV1 {
-		if dimensions != nil {
-			return nil, errors.New("bedrock: embedding: dimensions are unsupported by Amazon Titan Text Embeddings V1")
-		}
-		if native.Normalize != nil {
-			return nil, fmt.Errorf("bedrock: embedding extension %q normalize is unsupported by Amazon Titan Text Embeddings V1", EmbeddingRequestExtensionKey)
-		}
+		return fmt.Errorf("bedrock: embedding extension %q truncate is unsupported by Amazon Titan", EmbeddingRequestExtensionKey)
 	}
 	if e == embeddingFamilyTitanV2 {
-		if err := validateDimensions(
-			"Amazon Titan Text Embeddings V2",
-			dimensions,
-			embeddingDimension256,
-			embeddingDimension512,
-			embeddingDimension1024,
-		); err != nil {
-			return nil, err
-		}
+		return validateDimensions("Amazon Titan Text Embeddings V2", dimensions,
+			embeddingDimension256, embeddingDimension512, embeddingDimension1024)
 	}
+	if dimensions != nil {
+		return errors.New("bedrock: embedding: dimensions are unsupported by Amazon Titan Text Embeddings V1")
+	}
+	if native.Normalize != nil {
+		return fmt.Errorf("bedrock: embedding extension %q normalize is unsupported by Amazon Titan Text Embeddings V1", EmbeddingRequestExtensionKey)
+	}
+	return nil
+}
 
+// encodeTitanRequests encodes admitted options; Titan V1 admits neither
+// dimensions nor normalize, so both stay absent from its requests.
+func encodeTitanRequests(texts []string, dimensions *int64, native *EmbeddingRequestOptions) ([][]byte, error) {
 	bodies := make([][]byte, len(texts))
 	for index, text := range texts {
-		request := titanEmbeddingRequest{InputText: text}
-		if e == embeddingFamilyTitanV2 {
-			request.Dimensions = dimensions
-			request.Normalize = native.Normalize
-		}
+		request := titanEmbeddingRequest{InputText: text, Dimensions: dimensions, Normalize: native.Normalize}
 		body, err := jsonv2.Marshal(request)
 		if err != nil {
 			return nil, fmt.Errorf("bedrock: encode Titan embedding request %d: %w", index, err)
@@ -355,29 +388,10 @@ func (e embeddingFamily) encodeCohereRequest(texts []string, dimensions *int64, 
 	if len(texts) > maximumCohereBatchTexts {
 		return nil, fmt.Errorf("bedrock: Cohere Embed accepts at most %d texts per request; got %d", maximumCohereBatchTexts, len(texts))
 	}
-	if err := validateCohereInputType(native.InputType); err != nil {
-		return nil, err
-	}
-	if err := e.validateTruncate(native.Truncate); err != nil {
-		return nil, err
-	}
-	if native.Normalize != nil {
-		return nil, fmt.Errorf("bedrock: embedding extension %q normalize is unsupported by Cohere Embed", EmbeddingRequestExtensionKey)
-	}
-	if e == embeddingFamilyCohereV3 && dimensions != nil {
-		return nil, errors.New("bedrock: embedding: dimensions are unsupported by Cohere Embed V3")
-	}
-	if e == embeddingFamilyCohereV4 {
-		if err := validateDimensions(
-			"Cohere Embed V4",
-			dimensions,
-			embeddingDimension256,
-			embeddingDimension512,
-			embeddingDimension1024,
-			embeddingDimension1536,
-		); err != nil {
-			return nil, err
-		}
+	// Cohere requires input_type, but a request may supply it, so only the
+	// effective request has to carry one.
+	if native.InputType == "" {
+		return nil, fmt.Errorf("bedrock: embedding extension %q input_type is required for Cohere Embed", EmbeddingRequestExtensionKey)
 	}
 
 	request := cohereEmbeddingRequest{

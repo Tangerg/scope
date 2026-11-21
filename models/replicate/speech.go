@@ -54,7 +54,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.Polling.Validate(); err != nil {
 		return fmt.Errorf("replicate: Polling: %w", err)
 	}
-	return nil
+	_, err := s.InputSchema.admitOptions(s.DefaultOptions)
+	return err
 }
 
 // SpeechInputSchema explicitly binds Core speech fields to one Replicate
@@ -89,6 +90,26 @@ func (s SpeechInputSchema) Validate() error {
 		seen[key] = struct{}{}
 	}
 	return nil
+}
+
+// admitOptions admits the options alone against this schema and returns the
+// native prediction they carry.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func (s SpeechInputSchema) admitOptions(options speech.Options) (*predictionRequest, error) {
+	if err := s.validateOptions(options); err != nil {
+		return nil, err
+	}
+	apiReq, _, err := options.Extensions.Decode[predictionRequest](SpeechRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range []string{s.TextKey, s.VoiceKey, s.SpeedKey} {
+		if _, exists := apiReq.Input[key]; key != "" && exists {
+			return nil, fmt.Errorf("replicate: extension input %q: %w", key, metadata.ErrCoreOwnedField)
+		}
+	}
+	return &apiReq, nil
 }
 
 func (s SpeechInputSchema) validateOptions(options speech.Options) error {
@@ -176,21 +197,9 @@ func (s *SpeechModel) prepareRequest(req *speech.Request) (speech.Options, *pred
 	if effectiveOptions.Model != s.defaultOptions.Model {
 		return speech.Options{}, nil, fmt.Errorf("replicate: speech: model override %q does not match bound schema for %q", effectiveOptions.Model, s.defaultOptions.Model)
 	}
-	if validateOptionsErr := s.inputSchema.validateOptions(effectiveOptions); validateOptionsErr != nil {
-		return speech.Options{}, nil, validateOptionsErr
-	}
-
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[predictionRequest](SpeechRequestExtensionKey)
+	apiReq, err := s.inputSchema.admitOptions(effectiveOptions)
 	if err != nil {
 		return speech.Options{}, nil, err
-	}
-	apiReq := &apiReqValue
-	for _, key := range []string{s.inputSchema.TextKey, s.inputSchema.VoiceKey, s.inputSchema.SpeedKey} {
-		if key != "" {
-			if _, exists := apiReq.Input[key]; exists {
-				return speech.Options{}, nil, fmt.Errorf("replicate: extension input %q: %w", key, metadata.ErrCoreOwnedField)
-			}
-		}
 	}
 	inputs := []predictionInput{{s.inputSchema.TextKey, req.Text}}
 	if effectiveOptions.Voice != "" {

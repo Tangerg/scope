@@ -63,16 +63,8 @@ func TestEmbeddingRejectsUnknownNativeControlsBeforeIO(t *testing.T) {
 					Model: "amazon.titan-embed-text-v2:0", Extensions: extensions,
 				},
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			request, err := embedding.NewRequest([]string{"text"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			response, err := model.Call(t.Context(), request)
-			if response != nil || err == nil || calls.Load() != 0 {
-				t.Fatalf("response=%v error=%v provider calls=%d", response, err, calls.Load())
+			if model != nil || err == nil || calls.Load() != 0 {
+				t.Fatalf("model=%v error=%v provider calls=%d", model, err, calls.Load())
 			}
 		})
 	}

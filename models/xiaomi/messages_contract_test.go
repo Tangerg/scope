@@ -114,6 +114,14 @@ data: {"type":"message_stop"}
 				} else {
 					model, err = xiaomi.NewMessages(t.Context(), xiaomi.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: options})
 				}
+				// A default native thinking field has a second owner on its
+				// own, so construction refuses it before any call.
+				if test.nativeThinking {
+					if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

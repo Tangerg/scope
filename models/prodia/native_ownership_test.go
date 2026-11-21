@@ -73,6 +73,12 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := prodia.NewImageModel(t.Context(), prodia.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

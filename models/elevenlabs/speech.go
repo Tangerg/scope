@@ -72,7 +72,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.MaxResponseBytes.Validate(); err != nil {
 		return fmt.Errorf("elevenlabs: MaxResponseBytes: %w", err)
 	}
-	return nil
+	_, err := mapSpeechOptions(s.DefaultOptions)
+	return err
 }
 
 var _ speech.Model = (*SpeechModel)(nil)
@@ -109,43 +110,55 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 }
 
 func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputFormat string, body *ttsRequest, err error) {
-	effectiveOptions, resolveErr := s.defaultOptions.Resolve(req.Options)
-	if resolveErr != nil {
-		return "", "", nil, resolveErr
-	}
-
-	if effectiveOptions.Voice == "" {
-		return "", "", nil, errors.New("elevenlabs: Voice (voice id) is required - set Options.Voice")
-	}
-
-	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
+	effectiveOptions, err := s.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return "", "", nil, err
 	}
+	// Every call needs a voice, but a request may supply it, so only the
+	// effective request has to carry one.
+	if effectiveOptions.Voice == "" {
+		return "", "", nil, errors.New("elevenlabs: Voice (voice id) is required - set Options.Voice")
+	}
+	body, err = mapSpeechOptions(effectiveOptions)
+	if err != nil {
+		return "", "", nil, err
+	}
+	body.Body.Text = req.Text
+	return effectiveOptions.Voice, effectiveOptions.OutputFormat, body, nil
+}
+
+// mapSpeechOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapSpeechOptions(effectiveOptions speech.Options) (*ttsRequest, error) {
+
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
 	for _, field := range []string{speechFieldText, speechFieldModelID, speechFieldVoiceID, speechFieldOutputFormat} {
 		if _, exists := nativeFields[field]; exists {
-			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field %q: %w", SpeechRequestExtensionKey, field, metadata.ErrCoreOwnedField)
+			return nil, fmt.Errorf("elevenlabs: extension %q field %q: %w", SpeechRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if settings, ok := nativeFields[speechFieldVoiceSettings].(map[string]any); ok {
 		if _, exists := settings[voiceSettingsFieldSpeed]; exists {
-			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field voice_settings.speed: %w", SpeechRequestExtensionKey, metadata.ErrCoreOwnedField)
+			return nil, fmt.Errorf("elevenlabs: extension %q field voice_settings.speed: %w", SpeechRequestExtensionKey, metadata.ErrCoreOwnedField)
 		}
 	}
 
 	bodyValue, _, err := effectiveOptions.Extensions.Decode[ttsRequest](SpeechRequestExtensionKey)
 	if err != nil {
-		return "", "", nil, err
+		return nil, err
 	}
-	body = &bodyValue
-	body.Body.Text = req.Text
+	body := &bodyValue
 	body.Body.ModelID = effectiveOptions.Model
 
 	// The service clamps out-of-range speeds, so local rejection prevents a
 	// successful response from concealing a changed request.
 	if effectiveOptions.Speed != 0 {
 		if effectiveOptions.Speed < minimumSpeechSpeed || effectiveOptions.Speed > maximumSpeechSpeed {
-			return "", "", nil, fmt.Errorf("elevenlabs: speech speed must be between %g and %g, got %g", minimumSpeechSpeed, maximumSpeechSpeed, effectiveOptions.Speed)
+			return nil, fmt.Errorf("elevenlabs: speech speed must be between %g and %g, got %g", minimumSpeechSpeed, maximumSpeechSpeed, effectiveOptions.Speed)
 		}
 		if body.Body.VoiceSettings == nil {
 			body.Body.VoiceSettings = &voiceSettings{}
@@ -154,13 +167,13 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 		body.Body.VoiceSettings.Speed = &v
 	}
 	if body.OptimizeStreamingLatency != nil && (*body.OptimizeStreamingLatency < minimumStreamingLatencyOptimization || *body.OptimizeStreamingLatency > maximumStreamingLatencyOptimization) {
-		return "", "", nil, fmt.Errorf("elevenlabs: optimize_streaming_latency must be between %d and %d, got %d", minimumStreamingLatencyOptimization, maximumStreamingLatencyOptimization, *body.OptimizeStreamingLatency)
+		return nil, fmt.Errorf("elevenlabs: optimize_streaming_latency must be between %d and %d, got %d", minimumStreamingLatencyOptimization, maximumStreamingLatencyOptimization, *body.OptimizeStreamingLatency)
 	}
 	if effectiveOptions.OutputFormat != "" && !speechOutputFormat(effectiveOptions.OutputFormat).valid() {
-		return "", "", nil, fmt.Errorf("elevenlabs: unsupported output format %q", effectiveOptions.OutputFormat)
+		return nil, fmt.Errorf("elevenlabs: unsupported output format %q", effectiveOptions.OutputFormat)
 	}
 
-	return effectiveOptions.Voice, effectiveOptions.OutputFormat, body, nil
+	return body, nil
 }
 
 func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Response, error) {

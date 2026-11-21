@@ -38,7 +38,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, _, err := mapImageOptions(i.DefaultOptions)
+	return err
 }
 
 var _ image.Model = (*ImageModel)(nil)
@@ -79,6 +80,19 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	if err != nil {
 		return "", nil, err
 	}
+	endpoint, apiReq, err := mapImageOptions(effectiveOptions)
+	if err != nil {
+		return "", nil, err
+	}
+	apiReq.Prompt = req.Prompt
+	return endpoint, apiReq, nil
+}
+
+// mapImageOptions selects the endpoint and projects the options alone onto
+// the native request. A binding applies it to its defaults at construction
+// and to every resolved request, so defaults no request could send fail when
+// they are configured.
+func mapImageOptions(effectiveOptions image.Options) (string, *generateRequest, error) {
 	switch {
 	case effectiveOptions.Height != nil && effectiveOptions.Width != nil:
 		return "", nil, errors.New("stability: image: unsupported options: height, width")
@@ -112,8 +126,6 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 		return "", nil, err
 	}
 	apiReq.Model = wireModel
-
-	apiReq.Prompt = req.Prompt
 	if effectiveOptions.NegativePrompt != "" {
 		apiReq.NegativePrompt = effectiveOptions.NegativePrompt
 	}

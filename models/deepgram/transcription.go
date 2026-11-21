@@ -38,7 +38,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapTranscriptionOptions(t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -101,6 +102,13 @@ func (t *TranscriptionModel) buildParams(req *transcription.Request) (*listenPar
 	if err != nil {
 		return nil, err
 	}
+	return mapTranscriptionOptions(options)
+}
+
+// mapTranscriptionOptions projects the options alone onto the native query. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapTranscriptionOptions(options transcription.Options) (*listenParams, error) {
 	nativeFields, _, err := options.Extensions.Decode[map[string]any](TranscriptionRequestExtensionKey)
 	if err != nil {
 		return nil, err

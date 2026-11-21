@@ -45,14 +45,14 @@ func (c ClientConfig) validateOptions(options configOptions) error {
 		return err
 	}
 	if err := options.Validate(); err != nil {
-		return fmt.Errorf("vertexai: default options: %w", err)
+		return fmt.Errorf("vertexai: DefaultOptions: %w", err)
 	}
 	return nil
 }
 
 func (c ClientConfig) validateModelOptions(model string, options configOptions) error {
 	if model == "" {
-		return errors.New("vertexai: default options model is required")
+		return errors.New("vertexai: DefaultOptions.Model is required")
 	}
 	return c.validateOptions(options)
 }

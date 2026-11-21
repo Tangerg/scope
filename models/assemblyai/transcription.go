@@ -45,7 +45,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.Polling.Validate(); err != nil {
 		return fmt.Errorf("assemblyai: Polling: %w", err)
 	}
-	return nil
+	_, err := mapTranscriptOptions(t.DefaultOptions)
+	return err
 }
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
@@ -93,29 +94,9 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
-	if decodeErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
-	}
-	for _, field := range []string{fieldAudioURL, fieldLanguageCode} {
-		if _, exists := nativeFields[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("assemblyai: extension %q field %q: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)}
-		}
-	}
-
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptRequest](RequestExtensionKey)
-	apiReq := &apiReqValue
+	apiReq, err := mapTranscriptOptions(effectiveOptions)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	language, err := newLanguageSelection(effectiveOptions.Language, apiReq.LanguageCodes, apiReq.LanguageDetection)
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	language.apply(apiReq)
-	apiReq.SpeechModels = prioritizedSpeechModels(effectiveOptions.Model, apiReq.SpeechModels)
-	if validateTranscriptRequestErr := apiReq.validate(); validateTranscriptRequestErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptRequestErr}
 	}
 	if req.Audio.Source.Kind == media.SourceURI {
 		apiReq.AudioURL = req.Audio.Source.URI
@@ -147,6 +128,35 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	}
 
 	return t.buildResponse(final)
+}
+
+// mapTranscriptOptions projects the options alone onto the native request.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapTranscriptOptions(effectiveOptions transcription.Options) (*transcriptRequest, error) {
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range []string{fieldAudioURL, fieldLanguageCode} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("assemblyai: extension %q field %q: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
+		}
+	}
+	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptRequest](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	language, err := newLanguageSelection(effectiveOptions.Language, apiReqValue.LanguageCodes, apiReqValue.LanguageDetection)
+	if err != nil {
+		return nil, err
+	}
+	language.apply(&apiReqValue)
+	apiReqValue.SpeechModels = prioritizedSpeechModels(effectiveOptions.Model, apiReqValue.SpeechModels)
+	if err = apiReqValue.validate(); err != nil {
+		return nil, err
+	}
+	return &apiReqValue, nil
 }
 
 func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*transcriptResponse, error) {

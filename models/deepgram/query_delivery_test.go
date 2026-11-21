@@ -35,14 +35,14 @@ func TestSpeechRejectsCallbackDeliveryBeforeIO(t *testing.T) {
 				if field == "callback_method" {
 					value = http.MethodPut
 				}
-				if err := options.Extensions.Set(deepgram.SpeechRequestExtensionKey, map[string]any{"extra": url.Values{field: {value}}}); err != nil {
-					t.Fatal(err)
-				}
 				model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 				if err != nil {
 					t.Fatal(err)
 				}
 				request := &speech.Request{Text: "hello"}
+				if setErr := request.Options.Extensions.Set(deepgram.SpeechRequestExtensionKey, map[string]any{"extra": url.Values{field: {value}}}); setErr != nil {
+					t.Fatal(setErr)
+				}
 				var response *speech.Response
 				if streaming {
 					for chunk, streamErr := range model.Stream(t.Context(), request) {
@@ -81,9 +81,6 @@ func TestTranscriptionRejectsCallbackDeliveryBeforeIO(t *testing.T) {
 			if field == "callback_method" {
 				value = http.MethodPut
 			}
-			if err := options.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"extra": url.Values{field: {value}}}); err != nil {
-				t.Fatal(err)
-			}
 			model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 			if err != nil {
 				t.Fatal(err)
@@ -92,7 +89,11 @@ func TestTranscriptionRejectsCallbackDeliveryBeforeIO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := model.Call(t.Context(), &transcription.Request{Audio: audio})
+			request := &transcription.Request{Audio: audio}
+			if setErr := request.Options.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"extra": url.Values{field: {value}}}); setErr != nil {
+				t.Fatal(setErr)
+			}
+			response, err := model.Call(t.Context(), request)
 			if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls != 0 {
 				t.Fatalf("response=%v error=%v transport calls=%d", response, err, calls)
 			}

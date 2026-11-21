@@ -32,7 +32,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := admitImageOptions(i.DefaultOptions)
+	return err
 }
 
 type ImageModel struct {

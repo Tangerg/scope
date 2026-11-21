@@ -38,7 +38,8 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	return nil
+	_, err := mapEmbeddingOptions(e.Provider, e.DefaultOptions)
+	return err
 }
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
@@ -70,9 +71,22 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequest, error) {
-	effectiveOptions := req.Options
+	request, err := mapEmbeddingOptions(e.provider, req.Options)
+	if err != nil {
+		return nil, err
+	}
+	request.contents = make([]*genai.Content, 0, len(req.Texts))
+	for _, text := range req.Texts {
+		request.contents = append(request.contents, genai.NewContentFromText(text, genai.RoleUser))
+	}
+	return request, nil
+}
 
-	extensionKey := protocolKey(e.provider, EmbeddingRequestExtensionSuffix)
+// mapEmbeddingOptions projects the options alone onto the native request. A
+// binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func mapEmbeddingOptions(provider string, effectiveOptions embedding.Options) (*embeddingRequest, error) {
+	extensionKey := protocolKey(provider, EmbeddingRequestExtensionSuffix)
 	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](extensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
@@ -100,13 +114,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 		}
 		config.OutputDimensionality = new(int32(*effectiveOptions.Dimensions))
 	}
-
-	contents := make([]*genai.Content, 0, len(req.Texts))
-	for _, text := range req.Texts {
-		contents = append(contents, genai.NewContentFromText(text, genai.RoleUser))
-	}
-
-	return &embeddingRequest{model: effectiveOptions.Model, contents: contents, config: config, autoTruncate: nativeOptions.AutoTruncate}, nil
+	return &embeddingRequest{model: effectiveOptions.Model, config: config, autoTruncate: nativeOptions.AutoTruncate}, nil
 }
 
 // buildResponse assembles one output per input text. embed_content answers in

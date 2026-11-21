@@ -30,7 +30,7 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				if err := extensions.Set(stability.RequestExtensionKey, native); err != nil {
 					t.Fatal(err)
 				}
-				options := image.Options{Model: "stable-diffusion-xl-1024-v1-0"}
+				options := image.Options{Model: stability.ModelCore}
 				request, err := image.NewRequest("current prompt")
 				if err != nil {
 					t.Fatal(err)
@@ -41,6 +41,12 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := stability.NewImageModel(t.Context(), stability.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

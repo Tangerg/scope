@@ -42,6 +42,12 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					request.Options.Extensions = extensions
 				}
 				model, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if defaults {
+					if !errors.Is(err, metadata.ErrCoreOwnedField) {
+						t.Fatalf("construction error = %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -71,10 +77,7 @@ func TestSpeechRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			model, err := elevenlabs.NewSpeechModel(t.Context(), elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
+			if model != nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
 		})

@@ -55,7 +55,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.Polling.Validate(); err != nil {
 		return fmt.Errorf("replicate: Polling: %w", err)
 	}
-	return nil
+	_, err := i.InputSchema.admitOptions(i.DefaultOptions)
+	return err
 }
 
 // FileOutputKind identifies the exact file-output schema declared by a
@@ -181,6 +182,29 @@ func (i ImageInputSchema) Validate() error {
 	return nil
 }
 
+// admitOptions admits the options alone against this schema and returns the
+// native prediction they carry.
+// A binding applies it to its defaults at construction and to every resolved
+// request, so defaults no request could send fail when they are configured.
+func (i ImageInputSchema) admitOptions(options image.Options) (*predictionRequest, error) {
+	if err := i.validateOptions(options); err != nil {
+		return nil, err
+	}
+	if _, supported := i.OutputFormats[options.OutputFormat]; options.OutputFormat != "" && !supported {
+		return nil, fmt.Errorf("replicate: image: model %q does not support output format %q", options.Model, options.OutputFormat)
+	}
+	apiReq, _, err := options.Extensions.Decode[predictionRequest](ImageRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range []string{i.PromptKey, i.NegativePromptKey, i.WidthKey, i.HeightKey, i.SeedKey, i.OutputFormatKey} {
+		if _, exists := apiReq.Input[key]; key != "" && exists {
+			return nil, fmt.Errorf("replicate: extension input %q: %w", key, metadata.ErrCoreOwnedField)
+		}
+	}
+	return &apiReq, nil
+}
+
 func (i ImageInputSchema) validateOptions(options image.Options) error {
 	var unsupported []string
 	if options.Height != nil && i.HeightKey == "" {
@@ -278,20 +302,9 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 	if effectiveOptions.Model != i.defaultOptions.Model {
 		return image.Options{}, nil, fmt.Errorf("replicate: image: model override %q does not match bound schema for %q", effectiveOptions.Model, i.defaultOptions.Model)
 	}
-	if validateOptionsErr := i.inputSchema.validateOptions(effectiveOptions); validateOptionsErr != nil {
-		return image.Options{}, nil, validateOptionsErr
-	}
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[predictionRequest](ImageRequestExtensionKey)
+	apiReq, err := i.inputSchema.admitOptions(effectiveOptions)
 	if err != nil {
 		return image.Options{}, nil, err
-	}
-	apiReq := &apiReqValue
-	for _, key := range []string{i.inputSchema.PromptKey, i.inputSchema.NegativePromptKey, i.inputSchema.WidthKey, i.inputSchema.HeightKey, i.inputSchema.SeedKey, i.inputSchema.OutputFormatKey} {
-		if key != "" {
-			if _, exists := apiReq.Input[key]; exists {
-				return image.Options{}, nil, fmt.Errorf("replicate: extension input %q: %w", key, metadata.ErrCoreOwnedField)
-			}
-		}
 	}
 	inputs := []predictionInput{{i.inputSchema.PromptKey, req.Prompt}}
 	if effectiveOptions.NegativePrompt != "" {
@@ -307,11 +320,7 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 		inputs = append(inputs, predictionInput{i.inputSchema.SeedKey, *effectiveOptions.Seed})
 	}
 	if effectiveOptions.OutputFormat != "" {
-		value, supported := i.inputSchema.OutputFormats[effectiveOptions.OutputFormat]
-		if !supported {
-			return image.Options{}, nil, fmt.Errorf("replicate: image: model %q does not support output format %q", i.defaultOptions.Model, effectiveOptions.OutputFormat)
-		}
-		inputs = append(inputs, predictionInput{i.inputSchema.OutputFormatKey, value})
+		inputs = append(inputs, predictionInput{i.inputSchema.OutputFormatKey, i.inputSchema.OutputFormats[effectiveOptions.OutputFormat]})
 	}
 	if err := apiReq.setInputs(inputs); err != nil {
 		return image.Options{}, nil, err

@@ -31,7 +31,8 @@ func (c ChatCompletionsConfig) Validate() error {
 	if err := c.protocol().Validate(); err != nil {
 		return fmt.Errorf("xiaomi: %w", err)
 	}
-	return nil
+	_, err := decodeExtensions(c.DefaultOptions.Extensions, OpenAIRequestExtensionKey)
+	return err
 }
 
 func (c ChatCompletionsConfig) protocol() openai.ChatModelConfig {
@@ -66,7 +67,8 @@ func (m MessagesConfig) Validate() error {
 	if err := m.protocol().Validate(); err != nil {
 		return fmt.Errorf("xiaomi: %w", err)
 	}
-	return nil
+	_, err := decodeExtensions(m.DefaultOptions.Extensions, AnthropicRequestExtensionKey)
+	return err
 }
 
 func (m MessagesConfig) protocol() anthropic.MessagesConfig {

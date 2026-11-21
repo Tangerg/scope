@@ -26,7 +26,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.MaxResponseBytes.Validate(); err != nil {
 		return fmt.Errorf("google: MaxResponseBytes: %w", err)
 	}
-	return nil
+	_, err := mapSpeechOptions(s.Provider, s.DefaultOptions)
+	return err
 }
 
 var _ speech.Model = (*SpeechModel)(nil)

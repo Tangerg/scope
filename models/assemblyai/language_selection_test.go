@@ -82,6 +82,12 @@ func TestTranscriptionLanguageSelectionBeforeUpload(t *testing.T) {
 						t.Fatal(setErr)
 					}
 					model, err := assemblyai.NewTranscriptionModel(t.Context(), assemblyai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+					// A native selection that conflicts on its own fails
+					// construction; one that conflicts only with the request's
+					// language still fails at the call.
+					if defaults && err != nil && test.invalid {
+						return
+					}
 					if err != nil {
 						t.Fatal(err)
 					}
