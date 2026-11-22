@@ -338,7 +338,7 @@ case "$*" in
       exit 23
     fi
     ;;
-  *'mod tidy'|*'mod tidy -diff'|*'test -run ^$ ./...'|'clean -modcache') ;;
+  *'mod tidy'|*'mod tidy -diff'|*'test -run ^$ ./...'|'clean -modcache'|'list -m all') ;;
   'mod download -json '*) echo '{"Sum":"fixture","GoModSum":"fixture"}' ;;
   *) echo "unexpected-go:$*" >&2; exit 42 ;;
 esac

@@ -143,6 +143,19 @@ func TestReleasePublishesNotesFromVerifiedModuleTags(t *testing.T) {
 				if strings.Count(calls, "repository-gates\n") != 1 || dependenciesAt < 0 || gatesAt < dependenciesAt || pushAt < gatesAt {
 					t.Fatalf("run the complete gates once, after every dependency is frozen and before publishing:\n%s", calls)
 				}
+				var pins int
+				for line := range strings.SplitSeq(calls, "\n") {
+					if strings.HasPrefix(line, "git add -- ") {
+						pins++
+						if !strings.HasSuffix(line, "/go.work.sum") {
+							t.Fatalf("a layer pin was staged without the workspace checksums it changes: %s", line)
+						}
+					}
+				}
+				if pins != 2 || strings.Count(calls, "go list -m all\n") != pins ||
+					strings.Index(calls, "go list -m all\n") > strings.Index(calls, "git add -- ") {
+					t.Fatalf("each layer pin must refresh go.work.sum before staging it:\n%s", calls)
+				}
 			}
 			publishedAt := strings.Index(calls, "gh release "+action)
 			for _, module := range []string{"core", "consumer"} {
@@ -204,6 +217,20 @@ func TestReleaseRejectsStaleSourceInEveryExistingModuleTag(t *testing.T) {
 	if err == nil || !strings.Contains(output, "consumer/v0.0.2 is immutable but its module source changed") ||
 		strings.Contains(fixture.calls(t), "git push") || strings.Contains(fixture.calls(t), "repository-gates") {
 		t.Fatalf("each existing tag must match the checked module source before publication: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
+func TestReleaseResumesAfterWorkspaceChecksumProjection(t *testing.T) {
+	t.Parallel()
+	fixture := newReleaseSourceChangeFixture(t, func(t *testing.T, fixture *scriptFailureFixture) {
+		t.Helper()
+		fixture.write(t, "core/value.go", "package core\nconst Value = 2\n")
+	})
+	fixture.write(t, "go.work.sum", "example.com/m v1.0.0/go.mod h1:fixture=\n")
+	fixture.git(t, "commit", "-q", "-am", "record workspace checksums")
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err == nil || !strings.Contains(output, "publication-boundary-reached") || strings.Count(fixture.calls(t), "git push") != 1 {
+		t.Fatalf("go.work.sum belongs to no module archive, so it must not invalidate staged tags: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
 	}
 }
 
@@ -418,6 +445,7 @@ func newReleasePublicationFixture(t *testing.T, mode, boundary string) scriptFai
 		"GOPRIVATE=github.com/Tangerg/scope",
 	)
 	fixture.write(t, "go.work", "")
+	fixture.write(t, "go.work.sum", "")
 	fixture.write(t, "scripts/check.sh", `#!/usr/bin/env bash
 echo repository-gates >> "$SCRIPT_CALLS"
 if [[ $# -eq 0 && ! "$GOWORK" -ef "$SCRIPT_ROOT/go.work" ]]; then
@@ -445,6 +473,9 @@ case "$*" in
     else echo '{"Require":[]}'; fi
     ;;
   *'mod edit -require='*|*'mod tidy'|*'mod tidy -diff'|*'test -run ^$ ./...') ;;
+  'list -m all')
+    [[ "$GOWORK" -ef "$SCRIPT_ROOT/go.work" ]] || { echo workspace-checksums-outside-workspace >&2; exit 42; }
+    ;;
   'clean -modcache') printf 'cleanup-cache %s\n' "$GOMODCACHE" >> "$SCRIPT_CALLS" ;;
   'mod download -json '*)
     sum=fixture

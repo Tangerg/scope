@@ -339,7 +339,7 @@ if [[ -n "$release_first_existing_tag" ]]; then
   while IFS= read -r release_changed_path; do
     [[ -z "$release_changed_path" ]] && continue
     case "$release_changed_path" in
-      */go.mod | */go.sum) ;;
+      go.work.sum | */go.mod | */go.sum) ;;
       *) fail "source changed after $release_first_existing_tag; use a new version" ;;
     esac
   done <<< "$release_changed_paths"
@@ -403,6 +403,10 @@ for ((release_layer = 0; release_layer <= release_max_layer; release_layer++)); 
   done <"$release_plan"
 
   ((${#release_stage_paths[@]} > 0)) || fail "release plan has no modules in layer $release_layer"
+  # go.work.sum projects the pinned graph minus the sums member go.sum files
+  # already record, so a pin that changes either must carry the projection.
+  release_env go list -m all >/dev/null
+  [[ ! -f "$release_root/go.work.sum" ]] || release_stage_paths+=("$release_root/go.work.sum")
   git add -- "${release_stage_paths[@]}"
   if ! git diff --cached --quiet; then
     git commit -m "chore(release): pin layer $release_layer modules to $release_version"
