@@ -58,11 +58,11 @@ type Store struct {
 	schema       containerSchema
 }
 
-func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
-	if err := cfg.Validate(); err != nil {
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
+	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	s := &Store{container: cfg.Container, space: cfg.Space, partitionKey: cfg.physicalPartition()}
+	s := &Store{container: config.Container, space: config.Space, partitionKey: config.physicalPartition()}
 	schema, err := s.binding(ctx)
 	if err != nil {
 		return nil, err

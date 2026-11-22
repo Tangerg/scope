@@ -83,23 +83,23 @@ type binding[I, O any] struct {
 
 // Register exposes a Program's descriptor as an MCP tool. The projection only
 // renders a committed successful result and must be deterministic and side-effect free.
-func Register[I, O any](server *sdk.Server, cfg Config[I, O]) error {
+func Register[I, O any](server *sdk.Server, config Config[I, O]) error {
 	if server == nil {
 		return mcp.ErrNilServer
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return err
 	}
-	d := cfg.Program.Descriptor()
+	d := config.Program.Descriptor()
 	definition := tool.Definition{Name: d.Name(), Description: d.Description(), InputSchema: d.InputSchema().JSON()}
 	if err := definition.Validate(); err != nil {
 		return err
 	}
-	signer, err := newIssuer(cfg.ResumeKey, cfg.TokenLifetime)
+	signer, err := newIssuer(config.ResumeKey, config.TokenLifetime)
 	if err != nil {
 		return err
 	}
-	b := &binding[I, O]{cfg: cfg, issuer: signer}
+	b := &binding[I, O]{cfg: config, issuer: signer}
 	return registration.Register(server, registration.Tool{
 		Descriptor: &sdk.Tool{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema},
 		Handler:    b.call,

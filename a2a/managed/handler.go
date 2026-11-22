@@ -60,11 +60,11 @@ var _ a2asrv.RequestHandler = (*handler)(nil)
 
 // Tasks derive acceptance and lifecycle facts from readable runtime storage;
 // the protocol endpoint cannot maintain an independent task store.
-func NewHTTPHandler(cfg Config) (http.Handler, error) {
-	if cfg.Card == nil || cfg.Runtime == nil || !cfg.Program.Valid() || cfg.Authority == nil || strings.TrimSpace(cfg.Service) == "" || !utf8.ValidString(cfg.Service) {
+func NewHTTPHandler(config Config) (http.Handler, error) {
+	if config.Card == nil || config.Runtime == nil || !config.Program.Valid() || config.Authority == nil || strings.TrimSpace(config.Service) == "" || !utf8.ValidString(config.Service) {
 		return nil, fmt.Errorf("%w: runtime, program, card, service and authority are required", ErrInvalidConfig)
 	}
-	card := *cfg.Card
+	card := *config.Card
 	card.Capabilities.Extensions = slices.Clone(card.Capabilities.Extensions)
 	for _, extension := range card.Capabilities.Extensions {
 		if extension.Required {
@@ -81,8 +81,8 @@ func NewHTTPHandler(cfg Config) (http.Handler, error) {
 	}
 	card.DefaultInputModes = slices.Clone(content.inputs)
 	card.DefaultOutputModes = slices.Clone(content.outputs)
-	h := &handler{runtime: cfg.Runtime, program: cfg.Program, authority: cfg.Authority, service: cfg.Service, streaming: card.Capabilities.Streaming, content: content}
-	return a2a.NewProtocolHTTPHandler(a2a.ProtocolServerConfig{Card: &card, Handler: h, MaxRequestBytes: cfg.MaxRequestBytes})
+	h := &handler{runtime: config.Runtime, program: config.Program, authority: config.Authority, service: config.Service, streaming: card.Capabilities.Streaming, content: content}
+	return a2a.NewProtocolHTTPHandler(a2a.ProtocolServerConfig{Card: &card, Handler: h, MaxRequestBytes: config.MaxRequestBytes})
 }
 
 func (h *handler) scope(ctx context.Context, tenant string) (string, error) {
