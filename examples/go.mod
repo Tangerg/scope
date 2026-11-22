@@ -4,19 +4,19 @@ go 1.27.4
 
 require (
 	github.com/Tangerg/go-sdk v1.9.0-scope.1
-	github.com/Tangerg/scope/agent v0.62.0
-	github.com/Tangerg/scope/core v0.62.0
-	github.com/Tangerg/scope/etl v0.62.0
-	github.com/Tangerg/scope/eval v0.62.0
-	github.com/Tangerg/scope/eval/trajectory v0.62.0
-	github.com/Tangerg/scope/mcp v0.62.0
-	github.com/Tangerg/scope/rag v0.62.0
-	github.com/Tangerg/scope/tools v0.62.0
+	github.com/Tangerg/scope/agent v0.63.0
+	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/etl v0.63.0
+	github.com/Tangerg/scope/eval v0.63.0
+	github.com/Tangerg/scope/eval/trajectory v0.63.0
+	github.com/Tangerg/scope/mcp v0.63.0
+	github.com/Tangerg/scope/rag v0.63.0
+	github.com/Tangerg/scope/tools v0.63.0
 	github.com/samber/lo v1.53.0
 )
 
 require (
-	github.com/Tangerg/scope/otel v0.62.0 // indirect
+	github.com/Tangerg/scope/otel v0.63.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bluekeyes/go-gitdiff v0.9.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.4 // indirect
@@ -39,8 +39,8 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )
