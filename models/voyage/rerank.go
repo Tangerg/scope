@@ -45,9 +45,6 @@ func (r RerankModelConfig) Validate() error {
 	if err := r.apiConfig().validate(); err != nil {
 		return err
 	}
-	if r.DefaultOptions.Model == "" {
-		return errors.New("voyage: DefaultOptions.Model is required")
-	}
 	if err := r.DefaultOptions.Validate(); err != nil {
 		return err
 	}

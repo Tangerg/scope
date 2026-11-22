@@ -21,7 +21,7 @@ type TranscriptionModelConfig struct {
 }
 
 func (t TranscriptionModelConfig) Validate() error {
-	if err := validateBinding(t.Provider, t.APIKey, t.BaseURL, t.DefaultOptions.Model); err != nil {
+	if err := validateBinding(t.Provider, t.APIKey, t.BaseURL); err != nil {
 		return err
 	}
 	if err := t.DefaultOptions.Validate(); err != nil {

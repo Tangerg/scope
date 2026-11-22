@@ -25,9 +25,6 @@ func (r RerankModelConfig) Validate() error {
 	if err := r.apiConfig().validate(); err != nil {
 		return err
 	}
-	if r.DefaultOptions.Model == "" {
-		return errors.New("jina: DefaultOptions.Model is required")
-	}
 	return r.DefaultOptions.Validate()
 }
 

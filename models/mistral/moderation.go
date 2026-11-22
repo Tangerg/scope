@@ -2,7 +2,6 @@ package mistral
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -24,9 +23,6 @@ func (m ModerationModelConfig) apiConfig() apiConfig {
 func (m ModerationModelConfig) Validate() error {
 	if err := m.apiConfig().validate(); err != nil {
 		return err
-	}
-	if m.DefaultOptions.Model == "" {
-		return errors.New("mistral: DefaultOptions.Model is required")
 	}
 	if err := m.DefaultOptions.Validate(); err != nil {
 		return err

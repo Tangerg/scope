@@ -199,9 +199,6 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 }
 
 func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *corechat.ToolChoice, params *openaisdk.ChatCompletionNewParams) error {
-	if options.Model == "" {
-		return errors.New("openai: model is required in defaults or request options")
-	}
 	if options.TopK != nil {
 		fields := maps.Clone(params.ExtraFields())
 		if fields == nil {

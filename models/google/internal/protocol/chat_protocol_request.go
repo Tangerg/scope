@@ -59,9 +59,6 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if options.Model == "" {
-		return "", nil, nil, errors.New("google: model is required in defaults or request options")
-	}
 	if err = mapProtocolToolChoice(req.ToolChoice, config); err != nil {
 		return "", nil, nil, err
 	}

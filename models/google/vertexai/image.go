@@ -22,7 +22,7 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) Validate() error {
-	if err := i.Client.validateModelOptions(i.DefaultOptions.Model, i.DefaultOptions); err != nil {
+	if err := i.Client.validateOptions(i.DefaultOptions); err != nil {
 		return err
 	}
 	_, err := admitImageOptions(i.DefaultOptions)

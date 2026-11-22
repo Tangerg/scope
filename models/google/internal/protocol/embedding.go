@@ -32,7 +32,7 @@ type embeddingRequestOptions struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if err := validateModelBinding(e.Provider, e.Client, e.DefaultOptions.Model); err != nil {
+	if err := validateBinding(e.Provider, e.Client); err != nil {
 		return err
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {

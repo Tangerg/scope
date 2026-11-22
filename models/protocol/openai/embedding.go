@@ -23,7 +23,7 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if err := validateBinding(e.Provider, e.APIKey, e.BaseURL, e.DefaultOptions.Model); err != nil {
+	if err := validateBinding(e.Provider, e.APIKey, e.BaseURL); err != nil {
 		return err
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {

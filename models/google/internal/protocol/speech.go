@@ -17,7 +17,7 @@ type SpeechModelConfig struct {
 }
 
 func (s SpeechModelConfig) Validate() error {
-	if err := validateModelBinding(s.Provider, s.Client, s.DefaultOptions.Model); err != nil {
+	if err := validateBinding(s.Provider, s.Client); err != nil {
 		return err
 	}
 	if err := s.DefaultOptions.Validate(); err != nil {
@@ -42,10 +42,7 @@ var _ speech.Model = (*SpeechModel)(nil)
 type SpeechModel struct{ binding *speechBinding }
 
 func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
-	if err := validateUnarySpeechModel(config.DefaultOptions.Model); err != nil {
-		return nil, err
-	}
-	binding, err := newSpeechBinding(ctx, config)
+	binding, err := newSpeechBinding(ctx, config, validateUnarySpeechModel)
 	if err != nil {
 		return nil, err
 	}

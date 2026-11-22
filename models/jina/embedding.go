@@ -2,7 +2,6 @@ package jina
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -36,9 +35,6 @@ func (e EmbeddingModelConfig) apiConfig() apiConfig {
 func (e EmbeddingModelConfig) Validate() error {
 	if err := e.apiConfig().validate(); err != nil {
 		return err
-	}
-	if e.DefaultOptions.Model == "" {
-		return errors.New("jina: DefaultOptions.Model is required")
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err

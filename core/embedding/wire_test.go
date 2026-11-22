@@ -274,7 +274,7 @@ func TestOptionsResolveRejectsInvalidOverride(t *testing.T) {
 
 func TestOptionsResolveClonesPointerFields(t *testing.T) {
 	override := embedding.Options{Dimensions: int64Pointer(256)}
-	resolved, err := (embedding.Options{}).Resolve(override)
+	resolved, err := (embedding.Options{Model: "model"}).Resolve(override)
 	if err != nil {
 		t.Fatal(err)
 	}

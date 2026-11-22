@@ -50,10 +50,9 @@ func requireBindingEndpoint(provider, endpoint string) error {
 	return nil
 }
 
-// validateBinding admits the provider, credential, endpoint, and default
-// model every non-chat OpenAI-protocol model binds before it is constructed.
-// Only chat requests can name their model per call.
-func validateBinding(provider, apiKey, baseURL, model string) error {
+// validateBinding admits the provider, credential, and endpoint every non-chat
+// OpenAI-protocol model binds before it is constructed.
+func validateBinding(provider, apiKey, baseURL string) error {
 	if err := requireBindingEndpoint(provider, baseURL); err != nil {
 		return err
 	}
@@ -62,9 +61,6 @@ func validateBinding(provider, apiKey, baseURL, model string) error {
 	}
 	if _, _, err := (apiConfig{APIKey: apiKey, BaseURL: baseURL}).admit(); err != nil {
 		return err
-	}
-	if model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	return nil
 }

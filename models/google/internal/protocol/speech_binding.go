@@ -21,15 +21,22 @@ const (
 	speechVoiceConfigField        = "voiceConfig"
 )
 
+// speechBinding is shared by the unary and streaming models, which serve
+// disjoint model families; admitModel gates the defaults and every resolved
+// request, so a request override cannot reach the other family.
 type speechBinding struct {
 	api              *api
 	provider         string
 	defaultOptions   speech.Options
 	maxResponseBytes int64
+	admitModel       func(model string) error
 }
 
-func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBinding, error) {
+func newSpeechBinding(ctx context.Context, config SpeechModelConfig, admitModel func(model string) error) (*speechBinding, error) {
 	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	if err := admitModel(config.DefaultOptions.Model); err != nil {
 		return nil, err
 	}
 
@@ -43,12 +50,16 @@ func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBin
 		provider:         config.Provider,
 		defaultOptions:   config.DefaultOptions.Clone(),
 		maxResponseBytes: config.MaxResponseBytes.Bytes(),
+		admitModel:       admitModel,
 	}, nil
 }
 
 func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
 	effectiveOptions, err := s.defaultOptions.Resolve(req.Options)
 	if err != nil {
+		return "", nil, nil, err
+	}
+	if err = s.admitModel(effectiveOptions.Model); err != nil {
 		return "", nil, nil, err
 	}
 	config, err := mapSpeechOptions(s.provider, effectiveOptions)

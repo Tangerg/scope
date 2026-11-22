@@ -35,8 +35,8 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 	if _, err := transcription.NewRequest(nil); err == nil {
 		t.Fatal("NewRequest accepted nil audio")
 	}
-	if resolved, err := (transcription.Options{}).Resolve(transcription.Options{}); err != nil || resolved.Model != "" || resolved.Language != "" || !resolved.Extensions.IsZero() {
-		t.Fatalf("zero Options.Resolve(empty) = %#v, %v", resolved, err)
+	if _, err := (transcription.Options{}).Resolve(transcription.Options{}); !errors.Is(err, transcription.ErrInvalidOptions) {
+		t.Fatalf("Resolve without a model = %v; want ErrInvalidOptions", err)
 	}
 	if err := (*transcription.Request)(nil).Validate(); err == nil {
 		t.Fatal("Validate accepted nil request")

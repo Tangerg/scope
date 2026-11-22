@@ -34,9 +34,6 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.apiConfig().validate(); err != nil {
 		return err
 	}
-	if s.DefaultOptions.Model == "" {
-		return errors.New("deepgram: DefaultOptions.Model is required")
-	}
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}

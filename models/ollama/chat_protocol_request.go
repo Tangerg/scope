@@ -51,9 +51,6 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 	if err != nil {
 		return nil, err
 	}
-	if options.Model == "" {
-		return nil, errors.New("ollama: model is required in defaults or request options")
-	}
 	if req.ToolChoice != nil {
 		return nil, errors.New("ollama: tool choice is not supported by the native chat API")
 	}

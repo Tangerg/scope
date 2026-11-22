@@ -19,14 +19,18 @@ var _ speech.Model = (*StreamingSpeechModel)(nil)
 type StreamingSpeechModel struct{ binding *speechBinding }
 
 func NewStreamingSpeechModel(ctx context.Context, config SpeechModelConfig) (*StreamingSpeechModel, error) {
-	if config.DefaultOptions.Model != ModelGemini31FlashTTSPreview {
-		return nil, fmt.Errorf("google: streaming speech requires model %q", ModelGemini31FlashTTSPreview)
-	}
-	binding, err := newSpeechBinding(ctx, config)
+	binding, err := newSpeechBinding(ctx, config, validateStreamingSpeechModel)
 	if err != nil {
 		return nil, err
 	}
 	return &StreamingSpeechModel{binding: binding}, nil
+}
+
+func validateStreamingSpeechModel(model string) error {
+	if model != ModelGemini31FlashTTSPreview {
+		return fmt.Errorf("google: streaming speech requires model %q", ModelGemini31FlashTTSPreview)
+	}
+	return nil
 }
 
 // Call consumes the same stream to completion. Failed or interrupted synthesis

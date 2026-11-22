@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -65,9 +64,6 @@ func (r *responsesRequestProjection) project() (*responses.ResponseNewParams, er
 
 func (r *responsesRequestProjection) projectOptions() error {
 	options := r.request.Options
-	if options.Model == "" {
-		return errors.New("openai responses: model is required in defaults or request options")
-	}
 	r.native.Model = shared.ResponsesModel(options.Model)
 	if options.MaxOutputTokens != nil {
 		r.native.MaxOutputTokens = openaisdk.Int(*options.MaxOutputTokens)

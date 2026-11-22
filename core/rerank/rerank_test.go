@@ -101,11 +101,12 @@ func TestOptionsResolveValidatesTheEffectiveValue(t *testing.T) {
 		invalid        bool
 	}{
 		{name: "preserve base", base: rerank.Options{Model: "base", TopK: new(2)}, want: rerank.Options{Model: "base", TopK: new(2)}},
-		{name: "explicit all overrides limit", base: rerank.Options{TopK: new(1)}, override: rerank.Options{TopK: new(0)}, want: rerank.Options{TopK: new(0)}},
+		{name: "explicit all overrides limit", base: rerank.Options{Model: "base", TopK: new(1)}, override: rerank.Options{TopK: new(0)}, want: rerank.Options{Model: "base", TopK: new(0)}},
 		{name: "invalid base", base: rerank.Options{TopK: new(-1)}, invalid: true},
 		{name: "invalid override", base: rerank.Options{TopK: new(2)}, override: rerank.Options{TopK: new(-1)}, invalid: true},
 		{name: "invalid model", override: rerank.Options{Model: " model "}, invalid: true},
-		{name: "override repairs base", base: rerank.Options{TopK: new(-1)}, override: rerank.Options{TopK: new(2)}, want: rerank.Options{TopK: new(2)}},
+		{name: "override repairs base", base: rerank.Options{TopK: new(-1)}, override: rerank.Options{Model: "override", TopK: new(2)}, want: rerank.Options{Model: "override", TopK: new(2)}},
+		{name: "no model", base: rerank.Options{TopK: new(2)}, invalid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := test.base.Resolve(test.override)
@@ -144,7 +145,7 @@ func TestTopKPresenceSurvivesJSONAndOwnership(t *testing.T) {
 			}
 		})
 	}
-	base, override := rerank.Options{TopK: new(1)}, rerank.Options{TopK: new(0)}
+	base, override := rerank.Options{Model: "base", TopK: new(1)}, rerank.Options{TopK: new(0)}
 	cloned := base.Clone()
 	resolved, err := base.Resolve(override)
 	if err != nil {

@@ -32,9 +32,6 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.apiConfig().validate(); err != nil {
 		return err
 	}
-	if t.DefaultOptions.Model == "" {
-		return errors.New("deepgram: DefaultOptions.Model is required")
-	}
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}

@@ -22,7 +22,7 @@ type ModerationModelConfig struct {
 }
 
 func (m ModerationModelConfig) Validate() error {
-	if err := validateBinding(m.Provider, m.APIKey, m.BaseURL, m.DefaultOptions.Model); err != nil {
+	if err := validateBinding(m.Provider, m.APIKey, m.BaseURL); err != nil {
 		return err
 	}
 	if err := m.DefaultOptions.Validate(); err != nil {

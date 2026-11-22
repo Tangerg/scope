@@ -39,6 +39,9 @@ func (o Options) Resolve(override Options) (Options, error) {
 	if err := effective.Validate(); err != nil {
 		return Options{}, fmt.Errorf("embedding: resolve options: %w", err)
 	}
+	if err := modelid.RequireResolved(effective.Model); err != nil {
+		return Options{}, fmt.Errorf("embedding: resolve options: %w: %w", ErrInvalidOptions, err)
+	}
 	return effective, nil
 }
 

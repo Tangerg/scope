@@ -22,3 +22,12 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireResolved(t *testing.T) {
+	if err := RequireResolved(""); err == nil {
+		t.Fatal("RequireResolved accepted resolved options without a model")
+	}
+	if err := RequireResolved("gpt-4o"); err != nil {
+		t.Fatalf("RequireResolved(gpt-4o) = %v", err)
+	}
+}

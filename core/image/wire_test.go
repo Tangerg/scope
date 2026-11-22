@@ -361,7 +361,7 @@ func TestOptionsResolveRejectsInvalidOverride(t *testing.T) {
 
 func TestOptionsResolveClonesPointerFields(t *testing.T) {
 	override := image.Options{Width: int64Pointer(512), Height: int64Pointer(512), Seed: int64Pointer(7)}
-	resolved, err := (image.Options{}).Resolve(override)
+	resolved, err := (image.Options{Model: "model"}).Resolve(override)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,18 +58,6 @@ func validateBinding(provider string, client ClientConfig) error {
 	return client.Validate()
 }
 
-// validateModelBinding also requires a default model, because only chat
-// requests can name their model per call.
-func validateModelBinding(provider string, client ClientConfig, model string) error {
-	if err := validateBinding(provider, client); err != nil {
-		return err
-	}
-	if model == "" {
-		return errors.New("google: DefaultOptions.Model is required")
-	}
-	return nil
-}
-
 func (c ClientConfig) Validate() error {
 	if c.Backend == genai.BackendVertexAI {
 		if c.Project == "" {

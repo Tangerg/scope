@@ -47,7 +47,6 @@ func TestEmbeddingModel(t *testing.T) {
 func TestEmbeddingConstructionRejectsIncompleteAndInvalidOptions(t *testing.T) {
 	for _, config := range []alibaba.EmbeddingModelConfig{
 		{},
-		{APIKey: "test"},
 		{APIKey: "test", DefaultOptions: embedding.Options{Model: alibaba.ModelEmbeddingV4, Dimensions: new(int64(-1))}},
 	} {
 		if model, err := alibaba.NewEmbeddingModel(t.Context(), config); model != nil || err == nil {

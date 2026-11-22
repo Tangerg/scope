@@ -25,7 +25,7 @@ type SpeechModelConfig struct {
 }
 
 func (s SpeechModelConfig) Validate() error {
-	if err := validateBinding(s.Provider, s.APIKey, s.BaseURL, s.DefaultOptions.Model); err != nil {
+	if err := validateBinding(s.Provider, s.APIKey, s.BaseURL); err != nil {
 		return err
 	}
 	if err := s.DefaultOptions.Validate(); err != nil {

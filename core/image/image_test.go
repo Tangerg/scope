@@ -31,8 +31,8 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 	if _, err := image.NewRequest(""); err == nil {
 		t.Fatal("NewRequest accepted empty prompt")
 	}
-	if resolved, err := (image.Options{}).Resolve(image.Options{}); err != nil || resolved.Model != "" || resolved.Width != nil || !resolved.Extensions.IsZero() {
-		t.Fatalf("zero Options.Resolve(empty) = %#v, %v", resolved, err)
+	if _, err := (image.Options{}).Resolve(image.Options{}); !errors.Is(err, image.ErrInvalidOptions) {
+		t.Fatalf("Resolve without a model = %v; want ErrInvalidOptions", err)
 	}
 	if err := (*image.Request)(nil).Validate(); err == nil {
 		t.Fatal("Validate accepted nil request")

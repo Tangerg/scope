@@ -113,8 +113,8 @@ func mustDecode[T any](t *testing.T, values metadata.Extensions, key string) T {
 }
 
 func TestProtocolConstructorsRejectInvalidValues(t *testing.T) {
-	if resolved, err := (embedding.Options{}).Resolve(embedding.Options{}); err != nil || resolved.Model != "" || resolved.Dimensions != nil || !resolved.Extensions.IsZero() {
-		t.Fatalf("zero Options.Resolve(empty) = %#v, %v", resolved, err)
+	if _, err := (embedding.Options{}).Resolve(embedding.Options{}); !errors.Is(err, embedding.ErrInvalidOptions) {
+		t.Fatalf("Resolve without a model = %v; want ErrInvalidOptions", err)
 	}
 	if _, err := embedding.NewOutput(nil, nil); err == nil {
 		t.Fatal("NewOutput accepted an empty vector")

@@ -67,9 +67,6 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	if err = dialect.validateOptions(options); err != nil {
 		return nil, err
 	}
-	if options.Model == "" {
-		return nil, errors.New("anthropic: model is required in defaults or request options")
-	}
 	req = req.Clone()
 	req.Options = options
 	fields, err := extensionFields(req, dialect)

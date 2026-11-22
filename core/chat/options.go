@@ -57,7 +57,8 @@ func (o Options) Clone() Options {
 }
 
 // Resolve overlays only explicitly populated override values and returns an
-// independently owned, validated result. Neither input is mutated.
+// independently owned, validated result that names a model. Neither input is
+// mutated.
 func (o Options) Resolve(override Options) (Options, error) {
 	effective := o.Clone()
 	if err := effective.applyOverride(override); err != nil {
@@ -65,6 +66,9 @@ func (o Options) Resolve(override Options) (Options, error) {
 	}
 	if err := effective.Validate(); err != nil {
 		return Options{}, fmt.Errorf("chat: resolve options: %w", err)
+	}
+	if err := modelid.RequireResolved(effective.Model); err != nil {
+		return Options{}, fmt.Errorf("chat: resolve options: %w: %w", ErrInvalidOptions, err)
 	}
 	return effective, nil
 }

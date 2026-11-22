@@ -3,7 +3,6 @@ package elevenlabs
 import (
 	"context"
 	"encoding/json/jsontext"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -39,9 +38,6 @@ func (t TranscriptionModelConfig) apiConfig() apiConfig {
 func (t TranscriptionModelConfig) Validate() error {
 	if err := t.apiConfig().validate(); err != nil {
 		return err
-	}
-	if t.DefaultOptions.Model == "" {
-		return errors.New("elevenlabs: DefaultOptions.Model is required")
 	}
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err

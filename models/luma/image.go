@@ -51,9 +51,6 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.apiConfig().validate(); err != nil {
 		return err
 	}
-	if i.DefaultOptions.Model == "" {
-		return errors.New("luma: DefaultOptions.Model is required")
-	}
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("luma: DefaultOptions: %w", err)
 	}

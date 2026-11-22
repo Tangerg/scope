@@ -41,7 +41,7 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) Validate() error {
-	if err := validateBinding(i.Provider, i.APIKey, i.BaseURL, i.DefaultOptions.Model); err != nil {
+	if err := validateBinding(i.Provider, i.APIKey, i.BaseURL); err != nil {
 		return err
 	}
 	if err := i.DefaultOptions.Validate(); err != nil {

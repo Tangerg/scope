@@ -26,9 +26,6 @@ func (i ImageModelConfig) Validate() error {
 	if i.APIKey == "" {
 		return errors.New("google: APIKey is required")
 	}
-	if i.DefaultOptions.Model == "" {
-		return errors.New("google: DefaultOptions.Model is required")
-	}
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}

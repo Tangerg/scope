@@ -33,8 +33,8 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 	if _, err := moderation.NewRequest([]string{"valid", ""}); err == nil {
 		t.Fatal("NewRequest accepted an empty text entry")
 	}
-	if resolved, err := (moderation.Options{}).Resolve(moderation.Options{}); err != nil || resolved.Model != "" || !resolved.Extensions.IsZero() {
-		t.Fatalf("zero Options.Resolve(empty) = %#v, %v", resolved, err)
+	if _, err := (moderation.Options{}).Resolve(moderation.Options{}); !errors.Is(err, moderation.ErrInvalidOptions) {
+		t.Fatalf("Resolve without a model = %v; want ErrInvalidOptions", err)
 	}
 	if err := (*moderation.Request)(nil).Validate(); err == nil {
 		t.Fatal("Validate accepted nil request")

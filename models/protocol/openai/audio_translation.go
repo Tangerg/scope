@@ -22,7 +22,7 @@ type AudioTranslationModelConfig struct {
 }
 
 func (a AudioTranslationModelConfig) Validate() error {
-	if err := validateBinding(a.Provider, a.APIKey, a.BaseURL, a.DefaultOptions.Model); err != nil {
+	if err := validateBinding(a.Provider, a.APIKey, a.BaseURL); err != nil {
 		return err
 	}
 	if err := a.DefaultOptions.Validate(); err != nil {

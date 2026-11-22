@@ -25,9 +25,6 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if e.DefaultOptions.Model == "" {
-		return errors.New("ollama: DefaultOptions.Model is required")
-	}
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("ollama: DefaultOptions: %w", err)
 	}

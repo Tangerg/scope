@@ -49,10 +49,3 @@ func (c ClientConfig) validateOptions(options configOptions) error {
 	}
 	return nil
 }
-
-func (c ClientConfig) validateModelOptions(model string, options configOptions) error {
-	if model == "" {
-		return errors.New("vertexai: DefaultOptions.Model is required")
-	}
-	return c.validateOptions(options)
-}

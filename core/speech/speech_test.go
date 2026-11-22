@@ -45,8 +45,8 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 	if _, err := speech.NewRequest(""); err == nil {
 		t.Fatal("NewRequest accepted empty text")
 	}
-	if resolved, err := (speech.Options{}).Resolve(speech.Options{}); err != nil || resolved.Model != "" || resolved.Speed != 0 || !resolved.Extensions.IsZero() {
-		t.Fatalf("zero Options.Resolve(empty) = %#v, %v", resolved, err)
+	if _, err := (speech.Options{}).Resolve(speech.Options{}); !errors.Is(err, speech.ErrInvalidOptions) {
+		t.Fatalf("Resolve without a model = %v; want ErrInvalidOptions", err)
 	}
 	if err := (*speech.Request)(nil).Validate(); err == nil {
 		t.Fatal("Validate accepted nil request")

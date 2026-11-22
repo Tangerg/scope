@@ -47,7 +47,6 @@ func TestEmbeddingModel(t *testing.T) {
 func TestEmbeddingConfigRejectsIncompleteAndInvalidOptions(t *testing.T) {
 	tests := []zhipu.EmbeddingModelConfig{
 		{},
-		{APIKey: "key"},
 		{APIKey: "key", DefaultOptions: embedding.Options{Model: " model "}},
 	}
 	for _, config := range tests {

@@ -243,9 +243,6 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if err = validateOptions(options); err != nil {
 		return nil, err
 	}
-	if options.Model == "" {
-		return nil, errors.New("mistral: model is required in defaults or request options")
-	}
 	extension, _, err := options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)

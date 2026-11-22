@@ -255,9 +255,6 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if err = validateOptions(options); err != nil {
 		return nil, err
 	}
-	if options.Model == "" {
-		return nil, errors.New("bedrock: model is required in defaults or request options")
-	}
 	native, _, err := options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: extension %q: %w", RequestExtensionKey, err)
