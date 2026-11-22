@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.63.0 h1:vFEOWyEe8Bi5lMJcE+ACaMD472vGQeppmtKjKjX8i54=
-github.com/Tangerg/scope/core v0.63.0/go.mod h1:pzBzmt8hi7nhM0lfH9qvNXONyt3L9f5p6mzAYL742Pc=
-github.com/Tangerg/scope/rag v0.63.0 h1:/aHn+QPsaded7YK0Dz7HInDuv5CxgIRt05/azmjC7xo=
-github.com/Tangerg/scope/rag v0.63.0/go.mod h1:vCuddWA1aSjb9h5R10WcywOpVTaGew30wgb9Wel7bcs=
+github.com/Tangerg/scope/core v0.64.0 h1:iyXNOMqXn7YVVq2J7r94rvqJpk7Lk2uf0BxdlBHZj6A=
+github.com/Tangerg/scope/core v0.64.0/go.mod h1:pzBzmt8hi7nhM0lfH9qvNXONyt3L9f5p6mzAYL742Pc=
+github.com/Tangerg/scope/rag v0.64.0 h1:53jKubRXGuM5TgexgI5gNAO/hJnIbeCMujsTB7dKwbc=
+github.com/Tangerg/scope/rag v0.64.0/go.mod h1:uBIXdhR3IA0NPScXnDcHD38U6eJL0TmnCHlRwl5DQ2I=
 github.com/aws/aws-sdk-go-v2 v1.48.0 h1:tFU7EJVm7MfyaXLsXdYTZ0Vd6vwt9OljCyqq0gqk0Mc=
 github.com/aws/aws-sdk-go-v2 v1.48.0/go.mod h1:oeKU5p+TQBnpeLmU42WZLWvzv+ORLn+74n4QVLnm/Z0=
 github.com/aws/aws-sdk-go-v2/config v1.33.21 h1:NY1d3yXmplUSYnUAue0sR88svD+SJiaI+YJGp8TxSNg=

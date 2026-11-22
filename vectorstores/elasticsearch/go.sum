@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.63.0 h1:vFEOWyEe8Bi5lMJcE+ACaMD472vGQeppmtKjKjX8i54=
-github.com/Tangerg/scope/core v0.63.0/go.mod h1:pzBzmt8hi7nhM0lfH9qvNXONyt3L9f5p6mzAYL742Pc=
-github.com/Tangerg/scope/vectorstores/protocol/elastic v0.63.0 h1:/ipvyvmHRo7lLTi0jUjhRy0j1nvfVZEnNFuqZBIZ4es=
-github.com/Tangerg/scope/vectorstores/protocol/elastic v0.63.0/go.mod h1:lfoHYCZS0W/WdFRfLgwyL/6JicA9finbTN9331euxQo=
+github.com/Tangerg/scope/core v0.64.0 h1:iyXNOMqXn7YVVq2J7r94rvqJpk7Lk2uf0BxdlBHZj6A=
+github.com/Tangerg/scope/core v0.64.0/go.mod h1:pzBzmt8hi7nhM0lfH9qvNXONyt3L9f5p6mzAYL742Pc=
+github.com/Tangerg/scope/vectorstores/protocol/elastic v0.64.0 h1:sMvRSuqN/outdFeb9ve1SH2UshjENTYO8cTnDDEQ89Q=
+github.com/Tangerg/scope/vectorstores/protocol/elastic v0.64.0/go.mod h1:fAambKe7h0Xt5SKThK8lC/c7tEQgrEIz+fuaq9YlFSk=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=
