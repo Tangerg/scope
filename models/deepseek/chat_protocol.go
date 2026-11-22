@@ -51,7 +51,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		TokenLimitField:            openai.TokenLimitMaxTokens,
 		NativeOutputFormat:         nativeOutputFormat,
 		DisableRawRequestExtension: true,
-		TextReasoning:              &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways},
+		Reasoning:                  openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways},
 	}
 	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), dialect)
 	if err != nil {

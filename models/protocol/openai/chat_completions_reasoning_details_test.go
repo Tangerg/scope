@@ -54,7 +54,7 @@ func TestReasoningDetailsReplayUsesCoreText(t *testing.T) {
 				fmt.Fprintf(writer, "data: {\"id\":\"chat-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"content\":\"answer\",\"reasoning_details\":[{\"type\":%q,%q:\"original reasoning\",\"id\":\"detail-1\",\"index\":0,\"signature\":\"signature\",\"vendor_field\":7}]}}]}\n\ndata: [DONE]\n\n", test.kind, test.field)
 			}))
 			t.Cleanup(server.Close)
-			dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
+			dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, Reasoning: openai.ReasoningDetailsConfig{
 				TextField: openai.TextReasoning, DetailsField: "reasoning_details",
 			}}
 			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
@@ -99,7 +99,7 @@ func TestReasoningDetailsRejectInvalidNativeState(t *testing.T) {
 		t.Error("invalid reasoning state reached the provider")
 	}))
 	t.Cleanup(server.Close)
-	dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
+	dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, Reasoning: openai.ReasoningDetailsConfig{
 		TextField: openai.TextReasoning, DetailsField: "reasoning_details",
 	}}
 	model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
@@ -156,7 +156,7 @@ func testAnonymousReasoningBoundaries(t *testing.T, identity string) {
 		fmt.Fprint(writer, "data: {\"id\":\"chat-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"content\":\"answer\"}}]}\n\ndata: [DONE]\n\n")
 	}))
 	t.Cleanup(server.Close)
-	dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
+	dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, Reasoning: openai.ReasoningDetailsConfig{
 		TextField: openai.TextReasoning, DetailsField: "reasoning_details",
 	}}
 	model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{

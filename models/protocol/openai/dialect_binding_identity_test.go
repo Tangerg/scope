@@ -32,7 +32,7 @@ func TestDialectBindingOwnsNamespaceAndReasoningIssuer(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	fields := []openai.TextReasoningField{openai.TextReasoningContent}
-	dialect := openai.DialectConfig{Provider: "first", TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: fields, Replay: openai.TextReasoningReplayAlways}}
+	dialect := openai.DialectConfig{Provider: "first", TokenLimitField: openai.TokenLimitMaxTokens, Reasoning: openai.TextReasoningConfig{Fields: fields, Replay: openai.TextReasoningReplayAlways}}
 	config := openai.ChatModelConfig{APIKey: "key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}
 	first, err := openai.NewChatCompletions(t.Context(), config, dialect)
 	if err != nil {

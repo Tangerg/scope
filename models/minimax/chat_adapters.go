@@ -49,7 +49,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	dialect := openai.DialectConfig{
 		Provider:        Provider,
 		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
-		ReasoningDetails: &openai.ReasoningDetailsConfig{
+		Reasoning: openai.ReasoningDetailsConfig{
 			TextField:       openai.TextReasoningContent,
 			DetailsField:    reasoningDetailsField,
 			ReplayPlainText: true,

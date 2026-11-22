@@ -69,6 +69,14 @@ func (r ReasoningDetailsConfig) Validate() error {
 	return nil
 }
 
+func (r ReasoningDetailsConfig) bind(provider string) (requestDialect, func() responseDialect, error) {
+	if len(provider) > int(^uint16(0)) {
+		return nil, nil, errors.New("reasoning provider exceeds framing limit")
+	}
+	codec := reasoningDetailsCodec{provider: provider, config: r}
+	return codec, func() responseDialect { return codec }, nil
+}
+
 // The codec keeps visible text in Part.Text and native replay
 // fields in ReasoningState. Each detail identity names its own Core part in a
 // stream. Replay uses the current text and preserves native fields;

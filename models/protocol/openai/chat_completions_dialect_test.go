@@ -240,7 +240,7 @@ func TestDialectRequiresAnExplicitTokenLimitField(t *testing.T) {
 
 func newTextReasoningDialect(t *testing.T, config scopeopenai.TextReasoningConfig) scopeopenai.DialectConfig {
 	t.Helper()
-	dialect := scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens, TextReasoning: &config}
+	dialect := scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens, Reasoning: config}
 	if err := dialect.Validate(); err != nil {
 		t.Fatal(err)
 	}

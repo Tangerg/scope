@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/samber/lo"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/metadata"
@@ -159,9 +160,18 @@ type DialectConfig struct {
 	// models when it differs from OpenAI's, such as Groq's "default". Nil
 	// accepts OpenAI's vocabulary.
 	ReasoningEfforts []corechat.ReasoningEffort
+	// Reasoning is how the provider carries reasoning on the wire; nil means
+	// the provider sends none.
+	Reasoning ReasoningWire
+}
 
-	TextReasoning    *TextReasoningConfig
-	ReasoningDetails *ReasoningDetailsConfig
+// ReasoningWire is a provider's reasoning representation on the Chat
+// Completions wire. It is closed: TextReasoningConfig and
+// ReasoningDetailsConfig are its only implementations, so a dialect selects
+// exactly one representation by construction.
+type ReasoningWire interface {
+	Validate() error
+	bind(provider string) (requestDialect, func() responseDialect, error)
 }
 
 func (d DialectConfig) Validate() error {
@@ -176,19 +186,13 @@ func (d DialectConfig) Validate() error {
 			return fmt.Errorf("reasoning effort %d %q is invalid", index, effort)
 		}
 	}
-	if d.TextReasoning != nil && d.ReasoningDetails != nil {
-		return errors.New("reasoning wire representation must have exactly one owner")
+	if d.Reasoning == nil {
+		return nil
 	}
-	if d.TextReasoning != nil {
-		return d.TextReasoning.Validate()
+	if lo.IsNil(d.Reasoning) {
+		return errors.New("reasoning wire must not be a nil pointer")
 	}
-	if d.ReasoningDetails != nil {
-		if len(d.Provider) > int(^uint16(0)) {
-			return errors.New("reasoning provider exceeds framing limit")
-		}
-		return d.ReasoningDetails.Validate()
-	}
-	return nil
+	return d.Reasoning.Validate()
 }
 
 func (d DialectConfig) bind() (chatDialect, error) {
@@ -201,19 +205,12 @@ func (d DialectConfig) bind() (chatDialect, error) {
 		d.MaxTemperature = new(*d.MaxTemperature)
 	}
 	bound := chatDialect{DialectConfig: d}
-	if d.TextReasoning != nil {
-		config := *d.TextReasoning
-		config.Fields = slices.Clone(config.Fields)
-		bound.TextReasoning = &config
-		bound.request = textReasoningCodec{provider: d.Provider, config: config}
-		bound.response = func() responseDialect { return &textReasoningStream{provider: d.Provider, config: config} }
-	}
-	if d.ReasoningDetails != nil {
-		config := *d.ReasoningDetails
-		bound.ReasoningDetails = &config
-		codec := reasoningDetailsCodec{provider: d.Provider, config: config}
-		bound.request = codec
-		bound.response = func() responseDialect { return codec }
+	if d.Reasoning != nil {
+		request, response, err := d.Reasoning.bind(d.Provider)
+		if err != nil {
+			return chatDialect{}, err
+		}
+		bound.request, bound.response = request, response
 	}
 	return bound, nil
 }

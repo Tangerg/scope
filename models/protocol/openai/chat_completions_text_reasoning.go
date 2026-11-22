@@ -62,6 +62,13 @@ func (t TextReasoningConfig) Validate() error {
 	return nil
 }
 
+func (t TextReasoningConfig) bind(provider string) (requestDialect, func() responseDialect, error) {
+	t.Fields = slices.Clone(t.Fields)
+	return textReasoningCodec{provider: provider, config: t}, func() responseDialect {
+		return &textReasoningStream{provider: provider, config: t}
+	}, nil
+}
+
 type textReasoningCodec struct {
 	provider string
 	config   TextReasoningConfig
