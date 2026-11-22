@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/chroma
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 	github.com/amikos-tech/chroma-go v0.4.1
 	github.com/samber/lo v1.53.0
 )
@@ -51,7 +51,7 @@ require (
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	google.golang.org/api v0.310.0 // indirect
 	google.golang.org/genai v1.77.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect

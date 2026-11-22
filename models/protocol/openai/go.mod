@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/protocol/openai
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 	github.com/openai/openai-go/v3 v3.105.0
 	github.com/samber/lo v1.53.0
 )
@@ -20,5 +20,5 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.2 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

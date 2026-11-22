@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/pinecone
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 	github.com/pinecone-io/go-pinecone/v7 v7.2.0
 	github.com/samber/lo v1.53.0
 	google.golang.org/grpc v1.85.0
@@ -21,7 +21,7 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect
 )

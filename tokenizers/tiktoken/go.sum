@@ -1,10 +1,10 @@
-github.com/Tangerg/scope/core v0.62.0 h1:9nFjoQvH/+3a17MDsRi9nyp/dbLzzzqOcf+Ikz0CIes=
-github.com/Tangerg/scope/core v0.62.0/go.mod h1:Vzo9ulxNnpQrSaR5BTQkusA1QhdmH1AyTforca4mnrU=
+github.com/Tangerg/scope/core v0.63.0 h1:vFEOWyEe8Bi5lMJcE+ACaMD472vGQeppmtKjKjX8i54=
+github.com/Tangerg/scope/core v0.63.0/go.mod h1:pzBzmt8hi7nhM0lfH9qvNXONyt3L9f5p6mzAYL742Pc=
 github.com/dlclark/regexp2/v2 v2.12.0 h1:GsCgDZZeHluUDHASr2yqQonZk4Tma5LFmLH9CSsFFEE=
 github.com/dlclark/regexp2/v2 v2.12.0/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/samber/lo v1.53.0 h1:t975lj2py4kJPQ6haz1QMgtId2gtmfktACxIXArw3HM=
 github.com/samber/lo v1.53.0/go.mod h1:4+MXEGsJzbKGaUEQFKBq2xtfuznW9oz/WrgyzMzRoM0=
 github.com/tiktoken-go/tokenizer v0.10.0 h1:xcMbdR1D/rTF2/yEj1GQg3/jl5D9n5aQ546mr32di/w=
 github.com/tiktoken-go/tokenizer v0.10.0/go.mod h1:eLA0t6nGvn9mDc7gt90qt7pMat+gE9ViqwQ6l9B+tA4=
-golang.org/x/text v0.43.0 h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=
-golang.org/x/text v0.43.0/go.mod h1:hbSIYA/amXcRXTFSZqh8tWHEoqRvvbKPJ2uz/KU+a+s=
+golang.org/x/text v0.44.0 h1:YItdp/mQNGnsmrgpcdA5yQ3bnRxCfo/Tj/iByGW9GGo=
+golang.org/x/text v0.44.0/go.mod h1:S4FR1waQ9LbjQTls97SyRjDaUUVkaM+cXwwuG/G+MwY=

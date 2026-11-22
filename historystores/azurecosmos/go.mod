@@ -5,7 +5,7 @@ go 1.27.4
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.24.0
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 )
 
 require (
@@ -19,5 +19,5 @@ require (
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

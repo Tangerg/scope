@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/cohere
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 	github.com/cohere-ai/cohere-go/v2 v2.20.1
 )
 
@@ -16,5 +16,5 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

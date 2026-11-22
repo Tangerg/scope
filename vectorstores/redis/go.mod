@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/redis
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/samber/lo v1.53.0
 )
@@ -17,5 +17,5 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

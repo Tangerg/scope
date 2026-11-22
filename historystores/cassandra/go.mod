@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/historystores/cassandra
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/samber/lo v1.53.0
 )
@@ -21,6 +21,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 )
