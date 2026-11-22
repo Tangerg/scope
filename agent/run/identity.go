@@ -96,6 +96,7 @@ func (p ProcessID) Key() (ChildKey, bool) {
 	return ChildKey{identity{p.path[index+1:]}}, true
 }
 
+// Depth counts p's ancestors, so a root process has depth zero.
 func (p ProcessID) Depth() uint32 { return uint32(strings.Count(p.path, pathSeparator)) }
 
 func (p ProcessID) Child(key ChildKey) (ProcessID, error) {
@@ -105,6 +106,8 @@ func (p ProcessID) Child(key ChildKey) (ProcessID, error) {
 	return ProcessID{path: p.path + pathSeparator + key.String()}, nil
 }
 
+// Contains reports whether other lies in the subtree rooted at p. The relation
+// is reflexive: a process contains itself.
 func (p ProcessID) Contains(other ProcessID) bool {
 	for other.Valid() {
 		if p == other {

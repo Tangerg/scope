@@ -18,6 +18,9 @@ func TestPathIdentityOwnsAncestryAndCoordinates(t *testing.T) {
 	if grandchild.Root() != root || grandchild.Depth() != 2 || !root.Contains(grandchild) || !child.Contains(grandchild) || grandchild.Contains(root) {
 		t.Fatal("ancestry was not derived from the path")
 	}
+	if root.Depth() != 0 || !root.Contains(root) || !grandchild.Contains(grandchild) || child.Contains(root) {
+		t.Fatal("a subtree must contain its own root and a root process must have depth zero")
+	}
 	if parent, ok := grandchild.Parent(); !ok || parent != child {
 		t.Fatalf("parent=%s present=%t", parent, ok)
 	}

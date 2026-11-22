@@ -330,7 +330,7 @@ func TestEffectPolicyAndWaitSchemasRemainOwned(t *testing.T) {
 	}
 }
 
-func TestLogAndBatchClonesDetachEveryMutableContainer(t *testing.T) {
+func TestLogBatchAndEntryClonesDetachEveryMutableContainer(t *testing.T) {
 	for _, completed := range []bool{false, true} {
 		name := "pending"
 		if completed {
@@ -356,7 +356,18 @@ func TestLogAndBatchClonesDetachEveryMutableContainer(t *testing.T) {
 			if !bytes.Equal(batchBefore, controlValue(jsonv2.Marshal(batch))) || !bytes.Equal(before, controlValue(jsonv2.Marshal(original))) {
 				t.Fatal("Batch.Clone exposed caller-owned facts")
 			}
+			entries := make([]Entry, len(original.Entries))
+			for index, entry := range original.Entries {
+				entries[index] = controlValue(entry.Clone())
+			}
+			publicBoundaryMutateRecords(entries)
+			if !bytes.Equal(before, controlValue(jsonv2.Marshal(original))) {
+				t.Fatal("Entry.Clone exposed facts its reader shares")
+			}
 		})
+	}
+	if clone, err := (Entry{}).Clone(); !errors.Is(err, ErrInvalidLog) || clone.Record != nil {
+		t.Fatalf("invalid entry cloned into evidence: %+v, %v", clone, err)
 	}
 	if clone, err := (Log{}).Clone(); !errors.Is(err, ErrInvalidLog) || len(clone.Entries) != 0 {
 		t.Fatalf("invalid log cloned into evidence: %+v, %v", clone, err)

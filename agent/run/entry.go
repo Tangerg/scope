@@ -30,8 +30,8 @@ func (e Entry) ValidateFor(root ProcessID) error {
 	return nil
 }
 
-// clone detaches the entry from every value its record shares with the caller.
-func (e Entry) clone() (Entry, error) {
+// Clone detaches the entry from every value its record shares with the caller.
+func (e Entry) Clone() (Entry, error) {
 	record, err := cloneRecord(e.Record)
 	if err != nil {
 		return Entry{}, err
@@ -44,7 +44,7 @@ func cloneEntries(entries []Entry) ([]Entry, error) {
 	cloned := make([]Entry, len(entries))
 	for index, entry := range entries {
 		var err error
-		if cloned[index], err = entry.clone(); err != nil {
+		if cloned[index], err = entry.Clone(); err != nil {
 			return nil, err
 		}
 	}

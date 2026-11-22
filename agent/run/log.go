@@ -17,7 +17,9 @@ var (
 
 // Store owns one append-only log per root tree. Recovery and history are
 // separate reads so neither pays for the other's range: Load skips the prefix
-// covered by the newest checkpoint, and Read is incremental.
+// covered by the newest checkpoint, and Read is incremental. A batch shares
+// values with its caller and a returned entry with its reader, so a Store that
+// retains records in memory keeps them through Batch.Clone and Entry.Clone.
 type Store interface {
 	// Append is the only operation that advances a tree. It must atomically
 	// compare the writer Epoch and the head position before extending the log,

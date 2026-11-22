@@ -59,7 +59,7 @@ func (m *MemoryStore) Read(ctx context.Context, root ProcessID, after LSN) iter.
 				yield(Entry{}, err)
 				return
 			}
-			owned, err := entry.clone()
+			owned, err := entry.Clone()
 			if err != nil {
 				yield(Entry{}, err)
 				return
