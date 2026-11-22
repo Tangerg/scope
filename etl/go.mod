@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/etl
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/core v0.64.0
 	github.com/google/uuid v1.6.0
 	github.com/samber/lo v1.53.0
 	github.com/yuin/goldmark/v2 v2.1.16

@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/protocol/anthropic
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/core v0.64.0
 	github.com/anthropics/anthropic-sdk-go/v2 v2.12.0
 )
 

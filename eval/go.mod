@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/eval
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/core v0.64.0
 	github.com/samber/lo v1.53.0
 	golang.org/x/sync v0.25.0
 )
