@@ -17,7 +17,7 @@ type TranscriptionModelConfig struct {
 }
 
 func (t TranscriptionModelConfig) resolve() (endpointConfig, error) {
-	return t.resolveModel(t.DefaultOptions.Model, t.DefaultOptions.Validate)
+	return t.resolveEndpoint(t.DefaultOptions.Validate)
 }
 
 func (t TranscriptionModelConfig) Validate() error {

@@ -17,7 +17,7 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) resolve() (endpointConfig, error) {
-	return e.resolveModel(e.DefaultOptions.Model, e.DefaultOptions.Validate)
+	return e.resolveEndpoint(e.DefaultOptions.Validate)
 }
 
 func (e EmbeddingModelConfig) Validate() error {

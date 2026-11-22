@@ -21,7 +21,7 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) resolve() (endpointConfig, error) {
-	return c.resolveChat(c.DefaultOptions.Validate)
+	return c.resolveEndpoint(c.DefaultOptions.Validate)
 }
 
 func (c ChatCompletionsConfig) Validate() error {

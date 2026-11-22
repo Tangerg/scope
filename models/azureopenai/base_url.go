@@ -37,21 +37,9 @@ func (c Config) Validate() error {
 	return err
 }
 
-func (c Config) resolveModel(model string, validateOptions func() error) (endpointConfig, error) {
-	endpoint, err := c.resolve()
-	if err != nil {
-		return endpointConfig{}, err
-	}
-	if model == "" {
-		return endpointConfig{}, errors.New("azureopenai: DefaultOptions.Model is required")
-	}
-	if err := validateOptions(); err != nil {
-		return endpointConfig{}, fmt.Errorf("azureopenai: DefaultOptions: %w", err)
-	}
-	return endpoint, nil
-}
-
-func (c Config) resolveChat(validateOptions func() error) (endpointConfig, error) {
+// resolveEndpoint admits the endpoint and the defaults. Model names are
+// deployment names carried in the request body, so a request may supply one.
+func (c Config) resolveEndpoint(validateOptions func() error) (endpointConfig, error) {
 	endpoint, err := c.resolve()
 	if err != nil {
 		return endpointConfig{}, err

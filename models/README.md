@@ -34,8 +34,9 @@ below it is an independently versioned leaf with its own `doc.go`.
   of the resolved options; Core's `Options.Resolve` requires the model in every
   modality.
 - An adapter requires `DefaultOptions.Model` at construction only when the
-  model selects part of the binding or of the wire contract, such as an Azure
-  deployment, a Replicate schema, or a Bedrock embedding family.
+  model selects part of the binding or of the wire contract, such as a
+  Replicate schema, a Bedrock embedding family, or a Google speech model
+  family.
 - Runtime policy and product workflows remain outside adapter modules.
 
 Each adapter's own boundary, public API, and executable usage live in its

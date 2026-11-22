@@ -18,7 +18,7 @@ type SpeechModelConfig struct {
 }
 
 func (s SpeechModelConfig) resolve() (endpointConfig, error) {
-	endpoint, err := s.resolveModel(s.DefaultOptions.Model, s.DefaultOptions.Validate)
+	endpoint, err := s.resolveEndpoint(s.DefaultOptions.Validate)
 	if err != nil {
 		return endpointConfig{}, err
 	}
