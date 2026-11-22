@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/models/google
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
-	github.com/Tangerg/scope/models/protocol/openai v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/models/protocol/openai v0.63.0
 	github.com/Tangerg/sse v0.0.6
 	github.com/go-resty/resty/v2 v2.17.2
 	google.golang.org/genai v1.79.1
@@ -14,7 +14,6 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.2 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -28,12 +27,12 @@ require (
 	github.com/googleapis/gax-go/v2 v2.27.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
-	github.com/openai/openai-go/v3 v3.91.0 // indirect
+	github.com/openai/openai-go/v3 v3.105.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
-	github.com/tidwall/gjson v1.20.0 // indirect
+	github.com/tidwall/gjson v1.20.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.2 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
@@ -46,7 +45,7 @@ require (
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	google.golang.org/api v0.310.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect

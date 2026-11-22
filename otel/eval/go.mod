@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/otel/eval
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
-	github.com/Tangerg/scope/eval v0.62.0
-	github.com/Tangerg/scope/otel v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/eval v0.63.0
+	github.com/Tangerg/scope/otel v0.63.0
 	github.com/samber/lo v1.53.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/metric v1.47.0
@@ -27,7 +27,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

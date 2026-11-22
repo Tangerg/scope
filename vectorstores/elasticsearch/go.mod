@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/vectorstores/elasticsearch
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.62.0
-	github.com/Tangerg/scope/vectorstores/protocol/elastic v0.62.0
+	github.com/Tangerg/scope/core v0.63.0
+	github.com/Tangerg/scope/vectorstores/protocol/elastic v0.63.0
 	github.com/elastic/elastic-transport-go/v8 v8.11.0
 	github.com/elastic/go-elasticsearch/v9 v9.5.3
 	github.com/samber/lo v1.53.0
@@ -26,5 +26,5 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.62.0 h1:9nFjoQvH/+3a17MDsRi9nyp/dbLzzzqOcf+Ikz0CIes=
-github.com/Tangerg/scope/core v0.62.0/go.mod h1:Vzo9ulxNnpQrSaR5BTQkusA1QhdmH1AyTforca4mnrU=
-github.com/Tangerg/scope/etl v0.62.0 h1:a2bpy2wwljJil/MxMXLumT4bGTUeg5qRX4wMcuErEpw=
-github.com/Tangerg/scope/etl v0.62.0/go.mod h1:6eYdGGcNmMk8E/hIckojBmp4vpTGVQ3ocEVnwR9tLZo=
+github.com/Tangerg/scope/core v0.63.0 h1:vFEOWyEe8Bi5lMJcE+ACaMD472vGQeppmtKjKjX8i54=
+github.com/Tangerg/scope/core v0.63.0/go.mod h1:pzBzmt8hi7nhM0lfH9qvNXONyt3L9f5p6mzAYL742Pc=
+github.com/Tangerg/scope/etl v0.63.0 h1:9BHi4lvJGSU5jY4c7xQ5spQAlcdxlh66fW5CgCMm+Ro=
+github.com/Tangerg/scope/etl v0.63.0/go.mod h1:/oViOmgneE/TsBsQuPO9u7qr/h4ZL6qm6WeZwNqMqTM=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=
@@ -20,9 +20,9 @@ github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 h1:1EYB5IzjZawrrnELUi78f9fPu57Hu
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.3/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/yuin/goldmark/v2 v2.1.13 h1:NCbQv+/Vv6UKjWFT9OORfOkMdUbayQz8lK3L18IsOI8=
-github.com/yuin/goldmark/v2 v2.1.13/go.mod h1:G6M4/qOFtfn01/o14BU1UR2Lo5N3S9Qo7xCuz/sHjGQ=
+github.com/yuin/goldmark/v2 v2.1.16 h1:MXvCVo+Cb2SVJ5cwJUzXetDjI7HECRJCkcqylEQtcJo=
+github.com/yuin/goldmark/v2 v2.1.16/go.mod h1:G6M4/qOFtfn01/o14BU1UR2Lo5N3S9Qo7xCuz/sHjGQ=
 go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
 go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
-golang.org/x/text v0.43.0 h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=
-golang.org/x/text v0.43.0/go.mod h1:hbSIYA/amXcRXTFSZqh8tWHEoqRvvbKPJ2uz/KU+a+s=
+golang.org/x/text v0.44.0 h1:YItdp/mQNGnsmrgpcdA5yQ3bnRxCfo/Tj/iByGW9GGo=
+golang.org/x/text v0.44.0/go.mod h1:S4FR1waQ9LbjQTls97SyRjDaUUVkaM+cXwwuG/G+MwY=
