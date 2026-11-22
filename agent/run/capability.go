@@ -18,7 +18,7 @@ var ErrInvalidCapability = errors.New("run: invalid capability")
 type Capability struct{ name string }
 
 func ParseCapability(name string) (Capability, error) {
-	if !ValidQualifiedName(name) {
+	if !QualifiedName(name).Valid() {
 		return Capability{}, ErrInvalidCapability
 	}
 	return Capability{name: name}, nil

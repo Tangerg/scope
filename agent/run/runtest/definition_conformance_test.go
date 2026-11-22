@@ -209,7 +209,7 @@ func TestDefinitionConformanceValidatesEveryConfiguredTurn(t *testing.T) {
 				RejectedCases: []RejectedStepConformanceCase{{Name: "rejected", State: state, Turn: definitionTurn(1), FailureKind: run.FailureKindContract, FailureCode: "agenttest.rejected"}},
 			}
 			test.mutate(&config)
-			if err := validateDefinitionConformanceConfig(config); err == nil || !strings.Contains(err.Error(), test.want) {
+			if err := config.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("invalid config error = %v, want %q", err, test.want)
 			}
 		})

@@ -29,25 +29,25 @@ type Config struct {
 	Revision          string
 }
 
-func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output], error) {
+func Compile[I any](compiler *run.Compiler, config Config) (run.Program[I, Output], error) {
 	var zero run.Program[I, Output]
 
-	if cfg.Revision == "" {
+	if config.Revision == "" {
 		return zero, fmt.Errorf("%w: Revision is required", run.ErrInvalidProgram)
 	}
 	in, err := jsonschema.For[I]()
 	if err != nil {
 		return zero, err
 	}
-	declarations, executors, err := splitActionBindings(cfg.Actions)
+	declarations, executors, err := splitActionBindings(config.Actions)
 	if err != nil {
 		return zero, err
 	}
-	def, err := newDefinition(cfg, in, declarations)
+	def, err := newDefinition(config, in, declarations)
 	if err != nil {
 		return zero, err
 	}
-	dispatch, err := newDispatcher(def, cfg.Sensor, executors)
+	dispatch, err := newDispatcher(def, config.Sensor, executors)
 	if err != nil {
 		return zero, err
 	}
@@ -75,7 +75,7 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 		Attempts          run.Quota
 	}{def.goal.Name(), def.goal.Description(), def.goal.Conditions(), actions, def.maxActionAttempts}
 	return run.Bind[I, Output](compiler, run.BindingConfig{
-		Definition: def, Dispatcher: dispatch, Revision: cfg.Revision,
+		Definition: def, Dispatcher: dispatch, Revision: config.Revision,
 		Configuration: configuration,
 	})
 }

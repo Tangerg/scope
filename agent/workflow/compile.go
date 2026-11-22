@@ -19,24 +19,24 @@ type Config struct {
 	Configuration any
 }
 
-func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], error) {
+func Compile[I, O any](compiler *run.Compiler, config Config) (run.Program[I, O], error) {
 	var zero run.Program[I, O]
 
-	def, err := newDefinition(cfg)
+	def, err := newDefinition(config)
 	if err != nil {
 		return zero, err
 	}
 
 	callbacks := slices.ContainsFunc(def.stages, Stage.carriesCallbacks)
-	if callbacks != (cfg.Revision != "") || !callbacks && cfg.Configuration != nil {
+	if callbacks != (config.Revision != "") || !callbacks && config.Configuration != nil {
 		return zero, fmt.Errorf("%w: Revision must identify the configured stage callbacks", run.ErrInvalidProgram)
 	}
 	configuration := struct {
 		Graph     Topology `json:"graph"`
 		Callbacks any      `json:"callbacks,omitzero"`
-	}{Graph: def.Topology(), Callbacks: cfg.Configuration}
+	}{Graph: def.Topology(), Callbacks: config.Configuration}
 	return run.Bind[I, O](compiler, run.BindingConfig{
-		Definition: def, Revision: cfg.Revision,
+		Definition: def, Revision: config.Revision,
 		Configuration: configuration,
 	})
 }

@@ -46,17 +46,17 @@ type Config struct {
 
 // Compile freezes the real model loop, binds its child programs and checks its
 // Go input/output against the same schemas used at dispatch and recovery.
-func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], error) {
+func Compile(compiler *run.Compiler, config Config) (run.Program[Input, Output], error) {
 	var zero run.Program[Input, Output]
-	callbacks := cfg.ContextPolicy != nil || cfg.CompletionValidator != nil || cfg.ContextPreparer != nil
-	if callbacks != (cfg.Revision != "") {
+	callbacks := config.ContextPolicy != nil || config.CompletionValidator != nil || config.ContextPreparer != nil
+	if callbacks != (config.Revision != "") {
 		return zero, fmt.Errorf("%w: Revision must identify the configured Step-side callbacks", run.ErrInvalidProgram)
 	}
-	definition, err := newDefinition(cfg)
+	definition, err := newDefinition(config)
 	if err != nil {
 		return zero, err
 	}
-	dispatcher, err := newDispatcher(definition, cfg)
+	dispatcher, err := newDispatcher(definition, config)
 	if err != nil {
 		return zero, err
 	}
@@ -77,11 +77,11 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 		MaxResponseBytes, MaxStreamDeltaBytes               int
 		Delegates                                           []configuredDelegate
 	}{
-		ContextPolicy:       cfg.ContextPolicy != nil,
-		ContextPreparer:     cfg.ContextPreparer != nil,
-		CompletionValidator: cfg.CompletionValidator != nil,
+		ContextPolicy:       config.ContextPolicy != nil,
+		ContextPreparer:     config.ContextPreparer != nil,
+		CompletionValidator: config.CompletionValidator != nil,
 		MaxModelCalls:       definition.maxModelCalls,
-		Tools:               cfg.Tools.configuration(),
+		Tools:               config.Tools.configuration(),
 		MaxResponseBytes:    definition.maxResponseBytes,
 		MaxStreamDeltaBytes: dispatcher.model.streamLimit(),
 		Delegates:           delegates,
@@ -89,7 +89,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	return run.Bind[Input, Output](compiler, run.BindingConfig{
 		Definition:    definition,
 		Dispatcher:    dispatcher,
-		Revision:      cfg.Revision,
+		Revision:      config.Revision,
 		Configuration: policy,
 	})
 }

@@ -66,7 +66,7 @@ func (f FailureClassification) Kind() FailureKind { return f.kind }
 func (f FailureClassification) Code() string { return f.code }
 
 func (f FailureClassification) Valid() bool {
-	return f.kind.Valid() && ValidQualifiedName(f.code)
+	return f.kind.Valid() && QualifiedName(f.code).Valid()
 }
 
 // NewFailureClassification declares a classification that a Strategy records

@@ -158,7 +158,7 @@ func TestDefinitionConformanceRejectsUnusableInputsAndRestoredCases(t *testing.T
 		{Definition: definition},
 		{Definition: definition, Input: input, RestoredCases: []ExecutionConformanceCase{{Name: "missing state"}}},
 	} {
-		if validationErr := validateDefinitionConformanceConfig(config); validationErr == nil {
+		if validationErr := config.Validate(); validationErr == nil {
 			t.Fatal("unusable conformance configuration was accepted")
 		}
 	}

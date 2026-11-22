@@ -90,7 +90,7 @@ func (e effectEnvelope) valid() bool {
 	if !e.Input.Valid() {
 		return false
 	}
-	return e.Action == nil || run.ValidQualifiedName(e.Action.Name)
+	return e.Action == nil || run.QualifiedName(e.Action.Name).Valid()
 }
 
 func senseSettlement(state WorldState, cause error) (run.Settlement, error) {

@@ -29,7 +29,7 @@ type Config struct {
 	MaxControlsPerTurn uint32
 }
 
-func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], error) {
+func Compile[I, O any](compiler *run.Compiler, config Config) (run.Program[I, O], error) {
 	var zero run.Program[I, O]
 
 	in, err := jsonschema.For[I]()
@@ -40,7 +40,7 @@ func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], e
 	if err != nil {
 		return zero, err
 	}
-	def, err := newDefinition(cfg, in, out)
+	def, err := newDefinition(config, in, out)
 	if err != nil {
 		return zero, err
 	}

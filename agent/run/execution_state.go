@@ -30,7 +30,7 @@ func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
 
 // NewExecutionState freezes an opaque payload under its owning Strategy kind.
 func NewExecutionState(kind string, payload Payload) (ExecutionState, error) {
-	if !ValidQualifiedName(kind) {
+	if !QualifiedName(kind).Valid() {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
 	}
 	if !payload.Valid() {

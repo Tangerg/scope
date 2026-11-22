@@ -40,7 +40,7 @@ type switchStage struct {
 // Switch constructs one selected managed child-Process Stage. Every case must
 // accept the same I schema and produce one exactly matching output schema.
 func Switch[I any](config SwitchConfig[I]) (Stage, error) {
-	if !run.ValidQualifiedName(config.ID) || config.Select == nil || len(config.Cases) == 0 {
+	if !run.QualifiedName(config.ID).Valid() || config.Select == nil || len(config.Cases) == 0 {
 		return Stage{}, ErrInvalidStage
 	}
 	inputSchema, err := jsonschema.For[I]()
@@ -76,7 +76,7 @@ func newSwitchCases(stageID string, inputSchema jsonschema.Schema, declared []Sw
 	var outputSchema jsonschema.Schema
 	for index, candidate := range declared {
 		binding := candidate.Child
-		if !run.ValidQualifiedName(candidate.ID) || !binding.Valid() {
+		if !run.QualifiedName(candidate.ID).Valid() || !binding.Valid() {
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, stageID, index)
 		}
 		if _, duplicate := seen[candidate.ID]; duplicate {

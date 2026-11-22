@@ -22,7 +22,7 @@ type ProgramRef struct {
 }
 
 func newProgramRef(wire programIdentityWire) (ProgramRef, error) {
-	if !ValidQualifiedName(wire.Name) || !ValidDescription(wire.Build) || wire.Revision != "" && !ValidDescription(wire.Revision) || !wire.Contract.Valid() || !wire.Configuration.Valid() || !wire.Children.Valid() {
+	if !QualifiedName(wire.Name).Valid() || !ValidDescription(wire.Build) || wire.Revision != "" && !ValidDescription(wire.Revision) || !wire.Contract.Valid() || !wire.Configuration.Valid() || !wire.Children.Valid() {
 		return ProgramRef{}, ErrInvalidProgramRef
 	}
 	encoded, err := jsonv2.Marshal(wire)

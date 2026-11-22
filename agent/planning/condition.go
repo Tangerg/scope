@@ -18,7 +18,7 @@ type Condition struct {
 
 func NewCondition(key string, truth Truth) (Condition, error) {
 	condition := Condition{key: key, truth: truth}
-	if !run.ValidQualifiedName(key) || !truth.known() {
+	if !run.QualifiedName(key).Valid() || !truth.known() {
 		return Condition{}, fmt.Errorf("%w: key %q and truth %s", ErrInvalidCondition, key, truth)
 	}
 	return condition, nil

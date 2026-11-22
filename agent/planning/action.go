@@ -49,7 +49,7 @@ type Action struct {
 }
 
 func NewAction(config ActionConfig) (Action, error) {
-	if !run.ValidQualifiedName(config.Name) {
+	if !run.QualifiedName(config.Name).Valid() {
 		return Action{}, fmt.Errorf("%w: invalid name %q", ErrInvalidAction, config.Name)
 	}
 	if !run.ValidDescription(config.Description) {

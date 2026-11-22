@@ -66,7 +66,7 @@ type RejectedStepConformanceCase struct {
 // remain ordinary tests owned by the Definition implementation.
 func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) {
 	t.Helper()
-	if err := validateDefinitionConformanceConfig(config); err != nil {
+	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,18 +96,18 @@ func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) 
 	}
 }
 
-func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) error {
-	if lo.IsNil(config.Definition) {
+func (d DefinitionConformanceConfig) Validate() error {
+	if lo.IsNil(d.Definition) {
 		return errors.New("runtest: Definition conformance Definition is nil")
 	}
-	if !config.Input.Valid() {
+	if !d.Input.Valid() {
 		return errors.New("runtest: Definition conformance Input is invalid")
 	}
-	if err := validateConformanceTurns(config.InitialTurn, config.FollowingTurns...); err != nil {
+	if err := validateConformanceTurns(d.InitialTurn, d.FollowingTurns...); err != nil {
 		return fmt.Errorf("runtest: Definition conformance fresh Turn: %w", err)
 	}
 	restored := conformanceCaseNames{kind: "restored"}
-	for index, sample := range config.RestoredCases {
+	for index, sample := range d.RestoredCases {
 		if err := restored.claim(index, sample.Name, sample.State); err != nil {
 			return err
 		}
@@ -116,14 +116,14 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 		}
 	}
 	rejected := conformanceCaseNames{kind: "rejected"}
-	for index, sample := range config.RejectedCases {
+	for index, sample := range d.RejectedCases {
 		if err := rejected.claim(index, sample.Name, sample.State); err != nil {
 			return err
 		}
 		if err := validateConformanceTurns(sample.Turn); err != nil {
 			return fmt.Errorf("runtest: Definition conformance rejected case %q Turn: %w", sample.Name, err)
 		}
-		if !sample.FailureKind.Valid() || !run.ValidQualifiedName(sample.FailureCode) {
+		if !sample.FailureKind.Valid() || !run.QualifiedName(sample.FailureCode).Valid() {
 			return fmt.Errorf("runtest: Definition conformance rejected case %q must name the exact Failure kind and code", sample.Name)
 		}
 	}

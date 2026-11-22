@@ -43,7 +43,7 @@ func newForkSource(stageID string, inputSchema, branchSchema jsonschema.Schema, 
 	seen := make(map[string]struct{}, len(declared))
 	for index, branch := range declared {
 		binding := branch.Child
-		if !run.ValidQualifiedName(branch.ID) || !binding.Valid() {
+		if !run.QualifiedName(branch.ID).Valid() || !binding.Valid() {
 			return forkSource{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, stageID, index)
 		}
 		if _, duplicate := seen[branch.ID]; duplicate {
@@ -121,7 +121,7 @@ func (f forkInputValue) windowInputs(ctx context.Context, start, windowSize uint
 // outputs are homogeneous; heterogeneous work can be wrapped by child
 // Workflows that expose a shared contract.
 func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
-	if !run.ValidQualifiedName(config.ID) || len(config.Branches) == 0 ||
+	if !run.QualifiedName(config.ID).Valid() || len(config.Branches) == 0 ||
 		uint64(len(config.Branches)) > math.MaxUint32 || config.Reduce == nil ||
 		config.WindowSize == 0 || uint64(config.WindowSize) > uint64(len(config.Branches)) {
 		return Stage{}, ErrInvalidStage

@@ -41,7 +41,7 @@ type DescriptorConfig struct {
 }
 
 func (d DescriptorConfig) validate() error {
-	if !ValidQualifiedName(d.Name) {
+	if !QualifiedName(d.Name).Valid() {
 		return fmt.Errorf("%w: name must start with a lowercase letter and contain only lowercase letters, digits, '.', '_' or '-'", ErrInvalidDescriptor)
 	}
 	if !ValidDescription(d.Description) {

@@ -37,7 +37,7 @@ type ProgramResolverConformanceConfig struct {
 // case can report a data race.
 func RunProgramResolverConformance(t *testing.T, config ProgramResolverConformanceConfig) {
 	t.Helper()
-	if err := validateProgramResolverConformanceConfig(config); err != nil {
+	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,15 +148,15 @@ func verifyConcurrentResolution(config ProgramResolverConformanceConfig) error {
 	return errors.Join(collected...)
 }
 
-func validateProgramResolverConformanceConfig(config ProgramResolverConformanceConfig) error {
-	if lo.IsNil(config.Resolver) {
+func (p ProgramResolverConformanceConfig) Validate() error {
+	if lo.IsNil(p.Resolver) {
 		return errors.New("runtest: ProgramResolver conformance Resolver is nil")
 	}
-	if len(config.Resolvable) == 0 {
+	if len(p.Resolvable) == 0 {
 		return errors.New("runtest: ProgramResolver conformance requires at least one resolvable Program")
 	}
-	seen := make(map[run.ProgramRef]struct{}, len(config.Resolvable))
-	for index, program := range config.Resolvable {
+	seen := make(map[run.ProgramRef]struct{}, len(p.Resolvable))
+	for index, program := range p.Resolvable {
 		if !program.Valid() {
 			return fmt.Errorf("runtest: ProgramResolver conformance Resolvable[%d] is invalid", index)
 		}
@@ -166,7 +166,7 @@ func validateProgramResolverConformanceConfig(config ProgramResolverConformanceC
 		}
 		seen[reference] = struct{}{}
 	}
-	for index, reference := range config.Unresolvable {
+	for index, reference := range p.Unresolvable {
 		if !reference.Valid() {
 			return fmt.Errorf("runtest: ProgramResolver conformance Unresolvable[%d] is invalid", index)
 		}

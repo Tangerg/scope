@@ -46,7 +46,7 @@ type loopStage struct {
 // and produce exactly T; the Stage itself produces LoopResult[T].
 func Loop[T any](config LoopConfig[T]) (Stage, error) {
 	binding := config.Body
-	if !run.ValidQualifiedName(config.ID) || !binding.Valid() || !config.MaxIterations.Allows(1) || config.Predicate == nil {
+	if !run.QualifiedName(config.ID).Valid() || !binding.Valid() || !config.MaxIterations.Allows(1) || config.Predicate == nil {
 		return Stage{}, ErrInvalidStage
 	}
 	valueSchema, err := jsonschema.For[T]()

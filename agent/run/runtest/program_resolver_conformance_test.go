@@ -255,7 +255,7 @@ func TestProgramResolverConformanceRejectsAnUnusableConfig(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateProgramResolverConformanceConfig(test.config)
+			err := test.config.Validate()
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("config error = %v, want %q", err, test.want)
 			}

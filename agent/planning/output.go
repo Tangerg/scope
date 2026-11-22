@@ -77,7 +77,7 @@ type Attempt struct {
 func (a Attempt) excluded() bool { return a.Status != AttemptSucceeded }
 
 func (a Attempt) Validate() error {
-	if !run.ValidQualifiedName(string(a.ActionName)) || !a.Status.Valid() {
+	if !a.ActionName.Valid() || !a.Status.Valid() {
 		return fmt.Errorf("%w: invalid Action attempt identity or status", ErrInvalidResult)
 	}
 	if a.Status != AttemptFailed {

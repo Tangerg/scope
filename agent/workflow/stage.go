@@ -77,7 +77,7 @@ type CallConfig struct {
 // Transform constructs one typed pure Stage. JSON schemas derived from I and O
 // remain the authoritative erased boundary used by the Workflow definition.
 func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error) {
-	if !run.ValidQualifiedName(id) || transform == nil {
+	if !run.QualifiedName(id).Valid() || transform == nil {
 		return Stage{}, ErrInvalidStage
 	}
 	inputSchema, err := jsonschema.For[I]()
@@ -114,7 +114,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 // until the Workflow Execution returns a Framework NewChildStartEffect Effect.
 func Call(config CallConfig) (Stage, error) {
 	binding := config.Child
-	if !run.ValidQualifiedName(config.ID) || !binding.Valid() {
+	if !run.QualifiedName(config.ID).Valid() || !binding.Valid() {
 		return Stage{}, ErrInvalidStage
 	}
 	descriptor := binding.Program.Descriptor()

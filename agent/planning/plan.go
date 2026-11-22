@@ -16,7 +16,7 @@ type PlannedAction struct {
 }
 
 func NewPlannedAction(name string) (PlannedAction, error) {
-	if !run.ValidQualifiedName(name) {
+	if !run.QualifiedName(name).Valid() {
 		return PlannedAction{}, fmt.Errorf("%w: invalid Action name %q", ErrInvalidPlan, name)
 	}
 	return PlannedAction{name: name}, nil

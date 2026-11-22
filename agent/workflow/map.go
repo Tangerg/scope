@@ -101,7 +101,7 @@ type mapItemSpan struct{ start, end int }
 // and produces a non-nil empty []O without creating child Processes.
 func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 	binding := config.Child
-	if !run.ValidQualifiedName(config.ID) || !binding.Valid() ||
+	if !run.QualifiedName(config.ID).Valid() || !binding.Valid() ||
 		config.WindowSize == 0 || config.MaxItems == 0 || config.WindowSize > config.MaxItems {
 		return Stage{}, ErrInvalidStage
 	}

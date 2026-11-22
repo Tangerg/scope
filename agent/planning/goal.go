@@ -23,7 +23,7 @@ type Goal struct {
 }
 
 func NewGoal(config GoalConfig) (Goal, error) {
-	if !run.ValidQualifiedName(config.Name) {
+	if !run.QualifiedName(config.Name).Valid() {
 		return Goal{}, fmt.Errorf("%w: invalid name %q", ErrInvalidGoal, config.Name)
 	}
 	if !run.ValidDescription(config.Description) {
