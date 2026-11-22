@@ -166,3 +166,47 @@ func TestPortableModelRecoveryRejectsForeignOrUndeliverableEvidence(t *testing.T
 		t.Fatal("model recovery repeated work or retained caller mutation")
 	}
 }
+
+func TestUnknownCallResolvesToHostClassifiedFailure(t *testing.T) {
+	for _, row := range []struct {
+		name    string
+		model   chat.Model
+		toolErr error
+	}{
+		{name: "model", model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			return nil, errors.New("provider outcome unknown")
+		})},
+		{name: "tool", model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			return callResponse(requested("write", "call")), nil
+		}), toolErr: errors.New("write receipt lost")},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			store := run.NewMemoryStore()
+			runtime := conformancetest.Runtime(t, run.Config{Store: store})
+			tools := toolSetTest(t, scriptTool{name: "write", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
+				return tool.Result{}, row.toolErr
+			}})
+			program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(row.model)})
+			handle := startInteraction(t, runtime, program)
+			var request run.EffectRequest
+			awaitLog(t, store, handle.ID(), func(log run.Log) bool {
+				process, _ := mustValue(log.Inspect()).Process(handle.ID())
+				if len(process.PendingEffects) == 1 && process.PendingEffects[0].Outcome.Status() == run.SettlementStatusUnknown {
+					request = process.PendingEffects[0].Request
+					return true
+				}
+				return false
+			})
+			classification := run.NewFailureClassification(run.FailureKindExternal, "host.quota_exhausted")
+			failure := mustValue(run.NewFailure(classification.Kind(), classification.Code(), "quota exhausted"))
+			if err := handle.ResolveUnknownEffect(t.Context(), request.ID(), mustValue(run.NewFailedSettlement(failure, run.Payload{}))); err != nil {
+				t.Fatal(err)
+			}
+			result := mustValue(handle.Await(t.Context()))
+			terminal, failed := result.Termination().Failure()
+			if !failed || terminal.Classification() != classification || terminal.Message() != "quota exhausted" {
+				t.Fatalf("termination=%+v", result.Termination())
+			}
+		})
+	}
+}

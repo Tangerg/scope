@@ -38,6 +38,8 @@
 // that external work did not happen. Hosts investigate and submit a settlement
 // through run.Handle.ResolveUnknownEffect. [SettleToolResult], [SettleModelResult],
 // and [SettlePreparedContext] preserve the interaction's typed result contract.
+// A settlement from run.NewFailedSettlement instead ends the interaction with
+// the host's own Failure, classification included, which its Termination reports.
 // Tool recovery accepts the complete tool.Result, including an input request
 // whose external receipt was lost before its question reached the Log.
 // An interrupted call is redispatched only when its Tool declares
