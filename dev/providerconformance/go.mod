@@ -3,39 +3,39 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.63.0
-	github.com/Tangerg/scope/models/anthropic v0.63.0
-	github.com/Tangerg/scope/models/assemblyai v0.63.0
-	github.com/Tangerg/scope/models/bedrock v0.63.0
-	github.com/Tangerg/scope/models/blackforestlabs v0.63.0
-	github.com/Tangerg/scope/models/cohere v0.63.0
-	github.com/Tangerg/scope/models/deepgram v0.63.0
-	github.com/Tangerg/scope/models/elevenlabs v0.63.0
-	github.com/Tangerg/scope/models/gladia v0.63.0
-	github.com/Tangerg/scope/models/google v0.63.0
-	github.com/Tangerg/scope/models/hume v0.63.0
-	github.com/Tangerg/scope/models/jina v0.63.0
-	github.com/Tangerg/scope/models/luma v0.63.0
-	github.com/Tangerg/scope/models/mistral v0.63.0
-	github.com/Tangerg/scope/models/nomic v0.63.0
-	github.com/Tangerg/scope/models/ollama v0.63.0
-	github.com/Tangerg/scope/models/openai v0.63.0
-	github.com/Tangerg/scope/models/openrouter v0.63.0
-	github.com/Tangerg/scope/models/prodia v0.63.0
-	github.com/Tangerg/scope/models/protocol/openai v0.63.0
-	github.com/Tangerg/scope/models/replicate v0.63.0
-	github.com/Tangerg/scope/models/revai v0.63.0
-	github.com/Tangerg/scope/models/stability v0.63.0
-	github.com/Tangerg/scope/models/voyage v0.63.0
-	github.com/Tangerg/scope/models/xiaomi v0.63.0
-	github.com/Tangerg/scope/tools v0.63.0
+	github.com/Tangerg/scope/core v0.64.0
+	github.com/Tangerg/scope/models/anthropic v0.64.0
+	github.com/Tangerg/scope/models/assemblyai v0.64.0
+	github.com/Tangerg/scope/models/bedrock v0.64.0
+	github.com/Tangerg/scope/models/blackforestlabs v0.64.0
+	github.com/Tangerg/scope/models/cohere v0.64.0
+	github.com/Tangerg/scope/models/deepgram v0.64.0
+	github.com/Tangerg/scope/models/elevenlabs v0.64.0
+	github.com/Tangerg/scope/models/gladia v0.64.0
+	github.com/Tangerg/scope/models/google v0.64.0
+	github.com/Tangerg/scope/models/hume v0.64.0
+	github.com/Tangerg/scope/models/jina v0.64.0
+	github.com/Tangerg/scope/models/luma v0.64.0
+	github.com/Tangerg/scope/models/mistral v0.64.0
+	github.com/Tangerg/scope/models/nomic v0.64.0
+	github.com/Tangerg/scope/models/ollama v0.64.0
+	github.com/Tangerg/scope/models/openai v0.64.0
+	github.com/Tangerg/scope/models/openrouter v0.64.0
+	github.com/Tangerg/scope/models/prodia v0.64.0
+	github.com/Tangerg/scope/models/protocol/openai v0.64.0
+	github.com/Tangerg/scope/models/replicate v0.64.0
+	github.com/Tangerg/scope/models/revai v0.64.0
+	github.com/Tangerg/scope/models/stability v0.64.0
+	github.com/Tangerg/scope/models/voyage v0.64.0
+	github.com/Tangerg/scope/models/xiaomi v0.64.0
+	github.com/Tangerg/scope/tools v0.64.0
 )
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.2 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/Tangerg/scope/models/protocol/anthropic v0.63.0 // indirect
+	github.com/Tangerg/scope/models/protocol/anthropic v0.64.0 // indirect
 	github.com/Tangerg/sse v0.0.6 // indirect
 	github.com/anthropics/anthropic-sdk-go/v2 v2.12.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.48.0 // indirect

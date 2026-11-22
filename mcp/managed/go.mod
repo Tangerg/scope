@@ -4,13 +4,13 @@ go 1.27.4
 
 require (
 	github.com/Tangerg/go-sdk v1.9.0-scope.1
-	github.com/Tangerg/scope/agent v0.63.0
-	github.com/Tangerg/scope/core v0.63.0
-	github.com/Tangerg/scope/mcp v0.63.0
+	github.com/Tangerg/scope/agent v0.64.0
+	github.com/Tangerg/scope/core v0.64.0
+	github.com/Tangerg/scope/mcp v0.64.0
 )
 
 require (
-	github.com/Tangerg/scope/otel v0.63.0 // indirect
+	github.com/Tangerg/scope/otel v0.64.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
