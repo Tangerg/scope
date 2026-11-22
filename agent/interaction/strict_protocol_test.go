@@ -11,7 +11,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func TestParseModelResponseDeltaRejectsUnknownCoreMembers(t *testing.T) {
+func TestParseDeltaRejectsUnknownCoreMembers(t *testing.T) {
 	for name, delta := range map[string]string{
 		"delta":             `{"parts":[{"kind":"text","text":"hello"}],"unexpected":true}`,
 		"part":              `{"parts":[{"kind":"text","text":"hello","unexpected":true}]}`,
@@ -23,7 +23,7 @@ func TestParseModelResponseDeltaRejectsUnknownCoreMembers(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			payload := json.RawMessage(`{"response_delta":` + delta + `}`)
-			if _, err := ParseModelResponseDelta(mustValue(run.ParsePayload(payload))); !errors.Is(err, jsonv2.ErrUnknownName) {
+			if _, err := ParseDelta(mustValue(run.ParsePayload(payload))); !errors.Is(err, jsonv2.ErrUnknownName) {
 				t.Fatalf("parse error = %v, want unknown object member", err)
 			}
 		})

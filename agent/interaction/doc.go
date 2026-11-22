@@ -12,7 +12,7 @@
 // [ModelSettlementFromRecord] and [ToolSettlementFromRecord] decode its settlement.
 // Transient streaming deltas do not establish durable results. A model call
 // publishes ModelResponseDelta values and a tool call publishes the progress its
-// Tool reports; ParseModelResponseDelta and ParseToolProgress decode them.
+// Tool reports as ToolProgressDelta values; ParseDelta tells them apart.
 //
 // Ordinary tool calls are direct dispatcher Effects. Their first EffectID is
 // the logical reference across continuation Effects and result projections.

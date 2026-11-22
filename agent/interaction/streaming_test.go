@@ -38,8 +38,8 @@ func TestStreamingFinalOutputDoesNotDependOnDeltaDelivery(t *testing.T) {
 		}
 		if capacity != 0 {
 			delta := <-deltas
-			projection := mustValue(ParseModelResponseDelta(delta.Payload()))
-			if delta.ProcessID() != handle.ID() || projection.ResponseDelta().Text() != "hel" {
+			projection, ok := mustValue(ParseDelta(delta.Payload())).(ModelResponseDelta)
+			if !ok || delta.ProcessID() != handle.ID() || projection.ResponseDelta().Text() != "hel" {
 				t.Fatal("delta lost its process or model content")
 			}
 			copy := projection.ResponseDelta()
@@ -142,7 +142,7 @@ func TestInvalidModelEvidenceAndDeltaEncodingStayUnknown(t *testing.T) {
 		t.Fatal("nil delta encoded")
 	}
 	for _, raw := range []json.RawMessage{[]byte(`{}`), []byte(`{"response_delta":{}}`)} {
-		if _, err := ParseModelResponseDelta(mustValue(run.ParsePayload(raw))); err == nil {
+		if _, err := ParseDelta(mustValue(run.ParsePayload(raw))); err == nil {
 			t.Fatal("empty transport increment admitted")
 		}
 	}

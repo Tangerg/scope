@@ -25,14 +25,27 @@ func TestToolProgressIsPublishedAsDeltasOfItsEffect(t *testing.T) {
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)
 	delta := <-deltas
-	progress, err := ParseToolProgress(delta.Payload())
+	parsed, err := ParseDelta(delta.Payload())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if delta.ProcessID() != handle.ID() || progress != (tool.Progress{Completed: 1, Total: 2, Message: "halfway"}) {
-		t.Fatalf("delta=%v progress=%+v", delta.ProcessID(), progress)
+	progress, ok := parsed.(ToolProgressDelta)
+	if !ok || delta.ProcessID() != handle.ID() || progress.Progress() != (tool.Progress{Completed: 1, Total: 2, Message: "halfway"}) {
+		t.Fatalf("delta=%v parsed=%#v", delta.ProcessID(), parsed)
 	}
-	if _, err := ParseToolProgress(mustValue(run.ParsePayload([]byte(`{"progress":{"completed":3,"total":2}}`)))); err == nil {
-		t.Fatal("inconsistent progress decoded")
+}
+
+func TestParseDeltaAdmitsExactlyOneInteractionVariant(t *testing.T) {
+	for name, raw := range map[string]string{
+		"inconsistent progress": `{"progress":{"completed":3,"total":2}}`,
+		"both variants":         `{"response_delta":{"parts":[{"kind":"text","text":"hi"}]},"progress":{"completed":1,"total":2}}`,
+		"neither variant":       `{}`,
+		"foreign dispatcher":    `{"elapsed":"1s"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if parsed, err := ParseDelta(mustValue(run.ParsePayload([]byte(raw)))); err == nil {
+				t.Fatalf("ParseDelta admitted %s as %#v", raw, parsed)
+			}
+		})
 	}
 }
